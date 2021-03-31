@@ -1,10 +1,10 @@
 #include "computation_worker.hpp"
 #include "common.hpp"
+#include "common/logger.h" // On TensorRT/sample
 #include <NvInfer.h>
 #include <string>
 #include <iostream>
 
-using std::cerr;
 using std::endl;
 
 std::string ComputationWorker::GetModelName(int index)
@@ -25,19 +25,19 @@ void *ComputationWorker::Compute(std::string model_name, void *input)
     et_rw_mu.runlock();
     if (iter == engine_table.end())
     {
-        cerr << __CXX_PREFIX << "engine not vaild." << endl;
+        gLogError  << "engine not vaild." << endl;
         return nullptr;
     }
     nvinfer1::ICudaEngine* engine = iter->second.engine;
     if (!engine)
     {
-        cerr << __CXX_PREFIX << "engine not vaild." << endl;
+        gLogError  << "engine not vaild." << endl;
         return nullptr;
     }
     nvinfer1::IExecutionContext *context = engine->createExecutionContext();
     if (!context)
     {
-        cerr << __CXX_PREFIX << "engine start failed, context error." << endl;
+        gLogError  << "engine start failed, context error." << endl;
         return nullptr;
     }
     int input_index = engine->getBindingIndex(iter->second.InputName.c_str());
@@ -45,10 +45,10 @@ void *ComputationWorker::Compute(std::string model_name, void *input)
 
     void *buffers[2];
     buffers[input_index] = input;
-    void * output = allocator->allocate(iter->second.OutputSize, 0, 0);
+    void * output = kg_allocator->allocate(iter->second.OutputSize, 0, 0);
     if (!output)
     {
-        cerr << __CXX_PREFIX << "allocate output memory failed." << endl;
+        gLogError  << "allocate output memory failed." << endl;
         return nullptr;
     }
     buffers[output_index] = output;
