@@ -4,9 +4,6 @@
 #include <unordered_map>
 #include <mutex>
 
-// kg_allocator - 全局唯一allocator
-static nvinfer1::IGpuAllocator *kg_allocator = new KGAllocator();
-
 class KGAllocator final : public nvinfer1::IGpuAllocator
 {
 public:
@@ -44,5 +41,7 @@ private:
     // alloc_mu allocator全局锁，所有可能对memory_pool产生读写冲突的地方都由mu控制
     std::mutex alloc_mu;
 };
+
+extern nvinfer1::IGpuAllocator *kg_allocator;
 
 // end of trt_allocator.hpp

@@ -1,7 +1,7 @@
 #include "trt_allocator.hpp"
 #include "common.hpp"
-#include "kgmalloc.h"
-#include "hash/hash.h"
+#include "kgmalloc.hpp"
+#include "hash/hash.hpp"
 #include "common/logger.h" // On TensorRT/samples
 #include <string>
 #include <sstream>
@@ -12,11 +12,14 @@ using std::endl;
 using std::ostringstream;
 using std::string;
 
+// kg_allocator - 全局唯一allocator
+nvinfer1::IGpuAllocator *kg_allocator = new KGAllocator();
+
 // KGAllocator 执行底层kgmalloc初始化的构造函数
 KGAllocator::KGAllocator()
 {
     KGErrCode err = KGInit(FIRST_FIT);
-    if (err != KGMALLOC_SUCCESS)
+    if (err != KGMALLOC_SUCCESS )
     {
         string err_msg;
         ostringstream oss(err_msg);
