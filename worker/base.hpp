@@ -2,9 +2,9 @@
 
 #include <string>
 #include <istream>
+#include <NvInfer.h>
 #include <unordered_map>
 #include <atomic>
-#include <NvInfer.h>
 #include "../util/RWMutex/rwmutex.hpp"
 
 enum ModelType
@@ -21,24 +21,27 @@ typedef struct EngineInfo
     uint32_t InputSize;
     uint32_t OutputSize;
 } EngineInfo;
+
 // model_table 全局唯一索引与模型名称对照表
-static std::unordered_map<int, std::string> model_table;
+extern std::unordered_map<int, std::string> model_table;
 
 // max_index 当前最大index
-static atomic<int> max_index(-1);
+extern atomic<int> max_index;
 
 // mt_rw_mu model_table配套RW锁
-static RWMutex mt_rw_mu;
+extern RWMutex mt_rw_mu;
 
 // engine_table 全局唯一模型名称与引擎对照表
-static std::unordered_map<std::string, EngineInfo> engine_table;
+extern std::unordered_map<std::string, EngineInfo> engine_table;
 
 // et_rw_mu engine_table配套RW锁
-static RWMutex et_rw_mu;
+extern RWMutex et_rw_mu;
 
 class IWorker
 {
 public:
+    IWorker(){};
+    virtual ~IWorker(){};
     // Load 加载模型到GPU中
     // \param model_name 模型名称，该名称需要与目前已被加载的模型均不同，是一个唯一标识模型的名称
     // \param model_file 模型文件，可以为TensorRT引擎或ONNX文件
@@ -60,7 +63,7 @@ public:
     // Compute 开始根据模型执行计算
     // \param model_name 需要调用的模型的名称
     // \param input 指向host_memory的数据指针
-    virtual void *Compute(std::string model_name, void *input) const = 0;
+    virtual void *Compute(std::string model_name, void *input) = 0;
 };
 
 // end of base.hpp
