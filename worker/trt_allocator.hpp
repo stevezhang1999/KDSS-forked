@@ -1,8 +1,11 @@
 #pragma once
 
-#include "NvInferRuntimeCommon.h"
+#include <NvInferRuntimeCommon.h>
 #include <unordered_map>
 #include <mutex>
+
+// kg_allocator - 全局唯一allocator
+static nvinfer1::IGpuAllocator *kg_allocator = new KGAllocator();
 
 class KGAllocator final : public nvinfer1::IGpuAllocator
 {

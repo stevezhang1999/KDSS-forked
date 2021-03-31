@@ -2,6 +2,7 @@
 #include "common.hpp"
 #include "kgmalloc.h"
 #include "hash/hash.h"
+#include "common/logger.h" // On TensorRT/samples
 #include <string>
 #include <sstream>
 #include <iostream>
@@ -20,7 +21,7 @@ KGAllocator::KGAllocator()
         string err_msg;
         ostringstream oss(err_msg);
         oss << __CXX_PREFIX << "kgmalloc init failed. Error code: " << static_cast<int>(err);
-        cerr << oss << endl;
+        gLogError << "kgmalloc init failed. Error code: " << static_cast<int>(err);
         throw oss.str().c_str();
     }
 #ifdef __DEBUG
@@ -37,12 +38,12 @@ void *KGAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
     alloc_mu.lock();
     if (alignment > 0)
     {
-        cerr << __CXX_PREFIX << "KGAllocator does not enable alignment." << endl;
+        gLogError << "KGAllocator does not enable alignment." << endl;
     }
     CudaMemNode **node = new (CudaMemNode *);
     if (!node)
     {
-        cerr << __CXX_PREFIX << "node memory allocate failed." << endl;
+        gLogError << "node memory allocate failed." << endl;
         alloc_mu.unlock();
         return nullptr;
     }
@@ -51,14 +52,14 @@ void *KGAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
     err = GetHash(&hash);
     if (err != KGMALLOC_SUCCESS)
     {
-        cerr << __CXX_PREFIX << "allocate failed, err: " << err;
+        gLogError << "allocate failed, err: " << err;
         alloc_mu.unlock();
         return nullptr;
     }
-    err = KGAllocMem(node, size, hash);
+    err = KGAllocMem(node, size, hash, -1);
     if (err != KGMALLOC_SUCCESS)
     {
-        cerr << __CXX_PREFIX << "allocate failed, err: " << err;
+        gLogError << "allocate failed, err: " << err;
         alloc_mu.unlock();
         return nullptr;
     }
@@ -80,7 +81,7 @@ void KGAllocator::free(void *memory)
     }
     KGErrCode err = KGReleaseMem((CudaMemNode **)iter->second);
     if (err != KGMALLOC_SUCCESS)
-        cerr << __CXX_PREFIX << "free failed, err: " << err;
+        gLogError << "free failed, err: " << err;
     alloc_mu.unlock();
     return;
 }
@@ -89,7 +90,7 @@ KGAllocator::~KGAllocator()
 {
     KGErrCode err = KGDestroy();
     if (err != KGMALLOC_SUCCESS)
-        cerr << __CXX_PREFIX << "recycle kgmalloc memory failed, err: " << err;
+        gLogError << "recycle kgmalloc memory failed, err: " << err;
     return;
 }
 
