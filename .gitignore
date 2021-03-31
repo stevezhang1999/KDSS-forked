@@ -1,1 +1,5 @@
 .vscode
+*.a
+*.o
+main
+*.txt
