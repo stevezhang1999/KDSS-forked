@@ -7,7 +7,9 @@
 
 using std::endl;
 
-std::string ComputationWorker::GetModelName(int index)
+extern nvinfer1::IGpuAllocator *kg_allocator;
+
+std::string ComputationWorker::GetModelName(int index) const
 {
     mt_rw_mu.rlock();
     auto iter = model_table.find(index);

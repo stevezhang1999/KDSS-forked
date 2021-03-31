@@ -4,30 +4,33 @@
 #include <NvOnnxParser.h>
 #include <NvInferRuntimeCommon.h>
 #include "common/logger.h" // On TensorRT/samples
+#include "common/common.h" // On TensorRT/samples
 #include <memory>
 #include <iostream>
 using std::cerr;
 using std::endl;
 using std::string;
-using std::unique_ptr;
 
+extern nvinfer1::IGpuAllocator *kg_allocator;
 
+template <typename T>
+using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
 
-int Load(std::string model_name, std::string model_file, std::string file_path, ModelType type)
+int TransferWorker::Load(std::string model_name, std::string model_file, std::string file_path, ModelType type)
 {
-    auto builder = unique_ptr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger.getTRTLogger()));
+    auto builder = SampleUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger.getTRTLogger()));
     if (!builder)
     {
         return -1;
     }
 
-    auto network = unique_ptr<nvinfer1::INetworkDefinition>(builder->createNetwork());
+    auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetwork());
     if (!network)
     {
         return -1;
     }
 
-    auto config = unique_ptr<nvinfer1::IBuilderConfig>(builder->createBuilderConfig());
+    auto config = SampleUniquePtr<nvinfer1::IBuilderConfig>(builder->createBuilderConfig());
     if (!config)
     {
         return -1;
@@ -37,7 +40,7 @@ int Load(std::string model_name, std::string model_file, std::string file_path, 
     {
     case ONNX_FILE:
     {
-        auto parser = unique_ptr<nvonnxparser::IParser>(nvonnxparser::createParser(*network, gLogger.getTRTLogger()));
+        auto parser = SampleUniquePtr<nvonnxparser::IParser>(nvonnxparser::createParser(*network, gLogger.getTRTLogger()));
         if (!parser)
         {
             return -1;
@@ -55,9 +58,8 @@ int Load(std::string model_name, std::string model_file, std::string file_path, 
         break;
     }
     case TRT_ENGINE:
-#pragma message("error! TensorRT deserilaize is not avaliable now.")
         gLogError << "error! TensorRT deserilaize is not avaliable now." << endl;
-        return;
+        return -1;
         break;
     default:
         break;
@@ -126,7 +128,8 @@ int Load(std::string model_name, std::string model_file, std::string file_path, 
 
     return current_index;
 }
-int Unload(std::string model_name)
+
+int TransferWorker::Unload(std::string model_name)
 {
     // 从engine_table删除该模型的引擎
     et_rw_mu.lock();
@@ -151,7 +154,7 @@ int Unload(std::string model_name)
     return index;
 }
 
-std::string GetModelName(int index)
+std::string TransferWorker::GetModelName(int index) const
 {
     mt_rw_mu.rlock();
     auto iter = model_table.find(index);
@@ -159,4 +162,10 @@ std::string GetModelName(int index)
     if (iter == model_table.end())
         return "";
     return iter->second;
+}
+
+void *TransferWorker::Compute(std::string model_name, void *input)
+{
+    throw "Compute method not supported.";
+    return nullptr;
 }
