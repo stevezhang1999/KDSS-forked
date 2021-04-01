@@ -42,6 +42,11 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     {
         return -1;
     }
+    if (!kg_allocator)
+    {
+        kg_allocator = new KGAllocator();
+    }
+    builder->setGpuAllocator(kg_allocator);
 
     auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetwork());
     if (!network)
@@ -69,11 +74,6 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
         {
             return -1;
         }
-        if (!kg_allocator)
-        {
-            kg_allocator = new KGAllocator();
-        }
-        builder->setGpuAllocator(kg_allocator);
         builder->setMaxBatchSize(1);
         config->setMaxWorkspaceSize(32 * (1 << 20));
         // config->setFlag(nvinfer1::BuilderFlag::kFP16);
