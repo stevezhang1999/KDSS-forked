@@ -16,6 +16,25 @@ extern nvinfer1::IGpuAllocator *kg_allocator;
 template <typename T>
 using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
 
+TransferWorker::~TransferWorker()
+{
+    // 获得所有模型的名称，并开始删除它们
+    vector<std::string> model_vec;
+    mt_rw_mu.rlock();
+    for (auto name : model_table)
+    {
+        model_vec.push_back(name.second);
+    }
+    mt_rw_mu.runlock();
+
+    // 开始删除
+    et_rw_mu.lock();
+    for (auto name : model_vec)
+    {
+        engine_table.erase(name);
+    }
+    et_rw_mu.unlock();
+}
 int TransferWorker::Load(std::string model_name, std::string model_file, std::string file_path, ModelType type)
 {
     auto builder = SampleUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger.getTRTLogger()));
@@ -50,11 +69,14 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
         {
             return -1;
         }
+        if (!kg_allocator)
+        {
+            kg_allocator = new KGAllocator();
+        }
         builder->setGpuAllocator(kg_allocator);
         builder->setMaxBatchSize(1);
-        builder->setMaxWorkspaceSize(32 * (1 << 20));
-        // 默认采取int8精度进行快速推理
-        config->setFlag(nvinfer1::BuilderFlag::kINT8);
+        config->setMaxWorkspaceSize(32 * (1 << 20));
+        // config->setFlag(nvinfer1::BuilderFlag::kFP16);
         break;
     }
     case TRT_ENGINE:
