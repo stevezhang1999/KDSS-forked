@@ -1,11 +1,13 @@
 #include "trt_allocator.hpp"
 #include "common.hpp"
 #include "kgmalloc.hpp"
+#include "umap/umap.hpp"
 #include "hash/hash.hpp"
 #include "common/logger.h" // On TensorRT/samples
 #include <string>
 #include <sstream>
 #include <iostream>
+#include <vector>
 
 using std::cerr;
 using std::endl;
@@ -13,13 +15,13 @@ using std::ostringstream;
 using std::string;
 
 // kg_allocator - 全局唯一allocator
-nvinfer1::IGpuAllocator *kg_allocator = new KGAllocator();
+nvinfer1::IGpuAllocator *kg_allocator = nullptr;
 
 // KGAllocator 执行底层kgmalloc初始化的构造函数
 KGAllocator::KGAllocator()
 {
-    KGErrCode err = KGInit(FIRST_FIT);
-    if (err != KGMALLOC_SUCCESS )
+    KGErrCode err = KGInit(FIRST_FIT, 0);
+    if (err != KGMALLOC_SUCCESS)
     {
         string err_msg;
         ostringstream oss(err_msg);
@@ -41,9 +43,9 @@ void *KGAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
     alloc_mu.lock();
     if (alignment > 0)
     {
-        gLogError << "KGAllocator does not enable alignment." << endl;
+        gLogInfo << "KGAllocator does not enable alignment." << endl;
     }
-    CudaMemNode **node = new (CudaMemNode *);
+    CudaMemNode **node = new(CudaMemNode *);
     if (!node)
     {
         gLogError << "node memory allocate failed." << endl;
@@ -66,8 +68,15 @@ void *KGAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
         alloc_mu.unlock();
         return nullptr;
     }
+    // TODO：修复UMAP insert的错误
+    err = InsertUMap(node, (*node)->self);
+    if (err != KGMALLOC_SUCCESS)
+    {
+        gLogError << "register node on umap failed, err: " << err << endl;
+    }
     node_pool.insert(std::pair<void *, void *>((*node)->d_ptr, node));
     alloc_mu.unlock();
+    MemPoolInfo();
     return (*node)->d_ptr;
 }
 
@@ -82,9 +91,11 @@ void KGAllocator::free(void *memory)
         alloc_mu.unlock();
         return;
     }
-    KGErrCode err = KGReleaseMem((CudaMemNode **)iter->second);
+    // TODO：修复UMAP erase的错误
+    CudaMemNode **node = static_cast<CudaMemNode **>(iter->second);
+    KGErrCode err = KGReleaseMem(node);
     if (err != KGMALLOC_SUCCESS)
-        gLogError << "free failed, err: " << err;
+        gLogError << "free failed, err: " << err << endl;
     alloc_mu.unlock();
     return;
 }
