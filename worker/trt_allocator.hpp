@@ -36,7 +36,7 @@ public:
     virtual ~KGAllocator();
 
 private:
-    // node_pool 建立从d_ptr到node_ptr的连接
+    // node_pool 建立从d_ptr到node_ptr的地址的连接
     std::unordered_map<void *, void *> node_pool;
     // alloc_mu allocator全局锁，所有可能对memory_pool产生读写冲突的地方都由mu控制
     std::mutex alloc_mu;
