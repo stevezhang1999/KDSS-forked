@@ -32,7 +32,7 @@ public:
     // \param input 载有数据载荷的vector
     virtual std::vector<std::vector<char>> Compute(std::string model_name, std::vector<std::vector<char>> &input);
 
-    // Compute 使用CUDA stream进行overlapped异步计算
+    // ComputeWithStream 使用CUDA stream进行overlapped异步计算
     // \param model_name 需要调用的模型的名称
     // \param input 载有数据载荷的vector
     std::vector<std::vector<char>> ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input);
