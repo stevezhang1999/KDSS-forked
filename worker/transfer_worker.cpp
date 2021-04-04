@@ -251,3 +251,4 @@ int preProcessHostOutput(const std::vector<std::vector<char>>& output_vec, int i
     }
     memcpy(*output, data.data(), num * factor);
     return 0;
+}
