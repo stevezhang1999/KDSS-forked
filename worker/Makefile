@@ -1,20 +1,23 @@
 CXX := g++
 CC := gcc
 
+TRT_PATH := /home/lijiakang/TensorRT-6.0.1.5
+KGMALLOC_PATH := /home/lijiakang/kgmalloc
+
 CUDA_INCLUDE_DIR := /usr/local/cuda/include
-TRT_INCLUDE_DIR := /home/lijiakang/TensorRT-6.0.1.5/include
-KGMALLOC_INCLUDE_DIR := /home/lijiakang/kgmalloc
-HASH_INCLUDE_DIR := /home/lijiakang/kgmalloc/hash
-TRT_SAMPLE_INCLUDE_DIR := /home/lijiakang/TensorRT-6.0.1.5/samples
+TRT_INCLUDE_DIR := $(TRT_PATH)/include
+
+HASH_INCLUDE_DIR := $(KGMALLOC_PATH)/hash
+TRT_SAMPLE_INCLUDE_DIR := $(TRT_PATH)/samples
 
 CUDA_LIB_DIR := /usr/local/cuda/lib64
-TRT_LIB_DIR := /home/lijiakang/TensorRT-6.0.1.5/lib
-KGMALLOC_LIB_DIR := /home/lijiakang/kgmalloc/lib
+TRT_LIB_DIR := $(TRT_PATH)/lib
+KGMALLOC_LIB_DIR := $(KGMALLOC_PATH)/lib
 
 
 INCLUDE_DIR := $(CUDA_INCLUDE_DIR)
 INCLUDE_DIR += -I$(TRT_INCLUDE_DIR)
-INCLUDE_DIR += -I$(KGMALLOC_INCLUDE_DIR)
+INCLUDE_DIR += -I$(KGMALLOC_PATH)
 INCLUDE_DIR += -I$(HASH_INCLUDE_DIR)
 INCLUDE_DIR += -I$(TRT_SAMPLE_INCLUDE_DIR)
 
@@ -30,7 +33,11 @@ TARGET := main
 SRCS := $(wildcard *.cpp)
 OBJS := $(patsubst %cpp,%o,$(SRCS))
 
-EXT_OBJS := /home/lijiakang/TensorRT-6.0.1.5/bin/common/logger.o /home/lijiakang/kgmalloc/*.o ../util/RWMutex/*.o /home/lijiakang/kgmalloc/hash/hash.o /home/lijiakang/kgmalloc/umap/umap.o
+EXT_OBJS := $(TRT_PATH)/bin/common/logger.o 
+EXT_OBJS += $(KGMALLOC_PATH)/*.o
+EXT_OBJS += ../util/RWMutex/*.o 
+EXT_OBJS += $(KGMALLOC_PATH)/hash/hash.o 
+EXT_OBJS += $(KGMALLOC_PATH)/umap/umap.o
 
 all:$(TARGET)
 %.o:%.cpp
