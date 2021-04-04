@@ -178,6 +178,222 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     // return h_output;
 }
 
+std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input)
+{
+    std::vector<std::vector<char>> result;
+    // 从table中取得已注册的引擎
+    et_rw_mu.rlock();
+    auto iter = engine_table.find(model_name);
+    et_rw_mu.runlock();
+    if (iter == engine_table.end())
+    {
+        gLogError << "engine not vaild." << endl;
+        return result;
+    }
+    EngineInfo ef = iter->second;
+    nvinfer1::ICudaEngine *engine = ef.engine.get();
+    if (!engine)
+    {
+        gLogError << "engine not vaild." << endl;
+        return result;
+    }
+
+    SampleUniquePtr<nvinfer1::IExecutionContext> context;
+
+    MEASURE_TIME(context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext()));
+    if (!context)
+    {
+        gLogError << "engine start failed, context error." << endl;
+        return result;
+    }
+    // int input_index = engine->getBindingIndex(iter->second.InputName[0].c_str());
+    // int output_index = engine->getBindingIndex(iter->second.OutputName[0].c_str());
+
+    // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
+    int input_num = ef.InputName.size();
+    int output_num = ef.OutputName.size();
+    void **buffers = (void **)malloc(sizeof(void *) * (input_num + output_num));
+    if (!buffers)
+    {
+        gLogError << __CXX_PREFIX << "Buffer for computation alloc failed." << endl;
+        return result;
+    }
+    memset(buffers, 0, sizeof(void *) * (input_num + output_num));
+
+    // 创建CUDA stream
+    cudaStream_t stream;
+    int res = 0;
+    check_cuda_success(cudaStreamCreate(&stream), res);
+    if (res != 0)
+    {
+        gLogError << "Can not create cuda stream." << endl;
+        return result;
+    }
+    // 处理host端input到device端input
+    for (int i = 0; i < ef.InputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int input_i_index = ef.InputNetworkIndex.at(i);
+        if (input_i_index >= (input_num + output_num))
+        {
+            // This should not happen
+            gLogInfo << "Buffers not long enough, reallocating..." << endl;
+            buffers = (void **)realloc(buffers, sizeof(void *) * input_i_index);
+        }
+        uint64_t input_i_size;
+        int res = this->GetModelInputSize(model_name, ef.InputName.at(i), &input_i_size);
+        if (res)
+        {
+            // This should not happen
+            gLogError << __CXX_PREFIX << "Can not get input size of : " << ef.InputName.at(i);
+            return result;
+        }
+        // buffers[input_i_index] = WrapInput(input[i].data(), input_i_size);
+        check_cuda_success(cudaMalloc(&buffers[input_i_index], input_i_size), res);
+        if (res != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
+            return result;
+        }
+        check_cuda_success(cudaMemcpyAsync(buffers[input_i_index], input[i].data(), input_i_size, cudaMemcpyHostToDevice, stream), res);
+        if (res != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
+            return result;
+        }
+    }
+
+    // 申请device端output空间
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int output_i_index = ef.OutputNetworkIndex.at(i);
+        if (output_i_index >= (input_num + output_num))
+        {
+            // This should not happen
+            gLogInfo << "Buffers not long enough, reallocating..." << endl;
+            buffers = (void **)realloc(buffers, sizeof(void *) * output_i_index);
+        }
+        uint64_t output_i_size;
+        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
+        if (res)
+        {
+            // This should not happen
+            gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
+            return result;
+        }
+        // buffers[output_i_index] = kg_allocator->allocate(output_i_size, 0, 0);
+        check_cuda_success(cudaMalloc(&(buffers[output_i_index]), output_i_size), res);
+        if (res != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
+            return result;
+        }
+    }
+
+    // 执行模型
+    bool status;
+    status = context->enqueue(1, buffers, stream, nullptr);
+    if (!status)
+    {
+        gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
+        return result;
+    }
+
+    // 对output逐个unwrap
+    void **h_output = (void **)malloc(sizeof(void *) * output_num);
+    if (!h_output)
+    {
+        gLogError << __CXX_PREFIX << "Output allocation failed." << endl;
+        return result;
+    }
+
+    // 处理device端output到host端output
+    uint64_t output_i_size;
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int output_i_index = engine->getBindingIndex(ef.OutputName.at(i).c_str());
+
+        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
+        if (res)
+        {
+            // This should not happen
+            gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
+            return result;
+        }
+        // h_output[i] = UnwrapOutput(buffers[output_i_index]);
+        h_output[i] = malloc(output_i_size);
+        if (!h_output[i])
+        {
+            gLogError << "Can not allocate memory for h_output[i]" << endl;
+            return result;
+        }
+        check_cuda_success(cudaMemcpyAsync(h_output[i], buffers[output_i_index], output_i_size, cudaMemcpyDeviceToHost, stream), res);
+        if (res != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
+            return result;
+        }
+    }
+
+    check_cuda_success(cudaStreamSynchronize(stream), res);
+    if (res != 0)
+    {
+        gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
+        return result;
+    }
+
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        if (!h_output[i])
+        {
+            // 释放所有h_output[0,i-1]的内存
+            for (int j = 0; j < i; j++)
+            {
+                free(h_output[j]);
+            }
+            free(h_output);
+            h_output = nullptr;
+            result.clear();
+            break;
+        }
+        // 对h_output进行逐字节写入到result
+        std::vector<char> temp;
+        for (int j = 0; j < output_i_size; j++)
+        {
+            temp.push_back(*((char *)h_output[i] + j));
+        }
+        result.push_back(temp);
+    }
+    // 释放CUDA memory
+    for (int i = 0; i < (input_num + output_num); i++)
+    {
+        check_cuda_success(cudaFree(buffers[i]), res);
+        if (res != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
+            return result;
+        }
+    }
+    free(buffers);
+    // 释放h_output
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        free(h_output[i]);
+    }
+    free(h_output);
+    check_cuda_success(cudaStreamDestroy(stream), res);
+    if (res != 0)
+    {
+        gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
+        return result;
+    }
+    return result;
+    // void *h_output = UnwrapOutput(d_output);
+    // return h_output;
+}
+
 // GetModelInputSize 获取指定模型的输入总大小
 int ComputationWorker::GetModelInputSize(std::string model_name, int index, uint64_t *result) const
 {
