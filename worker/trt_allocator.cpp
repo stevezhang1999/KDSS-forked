@@ -69,30 +69,8 @@ void *KGAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
         alloc_mu.unlock();
         return nullptr;
     }
-    // gLogInfo << "Executing func: "
-    //          << "InsertUMap(" << node << ", " << (*node)->self << ");" << endl;
-    if (err != KGMALLOC_SUCCESS)
-    {
-        gLogError << "register node on umap failed, err: " << err << endl;
-    }
-    // if (PrintUMap(UMapPtrToAddr).length() != 0)
-    // {
-    //     gLogInfo << "Current UMapPtrToAddr:" << endl;
-    //     cout << PrintUMap(UMapPtrToAddr) << endl;
-    // }
-    // if (PrintUMap(UMapAddrToPtr).length() != 0)
-    // {
-    //     gLogInfo << "Current UMapAddrToPtr:" << endl;
-    //     cout << PrintUMap(UMapAddrToPtr) << endl;
-    // }
     node_pool.insert(std::pair<void *, void *>((*node)->d_ptr, node));
-    // if (PrintUMap(node_pool).length() != 0)
-    // {
-    //     gLogInfo << "Current node_pool:" << endl;
-    //     cout << PrintUMap(node_pool) << endl;
-    // }
     alloc_mu.unlock();
-    // MemPoolInfo();
     return (*node)->d_ptr;
 }
 
@@ -110,30 +88,13 @@ void KGAllocator::free(void *memory)
     // TODO：修复UMAP erase的错误
     CudaMemNode **node = static_cast<CudaMemNode **>(iter->second);
     KGErrCode err = KGReleaseMem(node);
-    // gLogInfo << "Executing func: "
-    //          << "KGReleaseMem(" << node << ");" << endl;
     if (err != KGMALLOC_SUCCESS)
     {
         gLogError << "free failed, err: " << err << endl;
     }
-    // if (PrintUMap(UMapPtrToAddr).length() != 0)
-    // {
-    //     gLogInfo << "Current UMapPtrToAddr:" << endl;
-    //     cout << PrintUMap(UMapPtrToAddr) << endl;
-    // }
-    // if (PrintUMap(UMapAddrToPtr).length() != 0)
-    // {
-    //     gLogInfo << "Current UMapAddrToPtr:" << endl;
-    //     cout << PrintUMap(UMapAddrToPtr) << endl;
-    // }
-    // if (PrintUMap(node_pool).length() != 0)
-    // {
-    //     gLogInfo << "Current node_pool:" << endl;
-    //     cout << PrintUMap(node_pool) << endl;
-    // }
+    delete node;
     node_pool.erase(iter);
     alloc_mu.unlock();
-    // MemPoolInfo();
     return;
 }
 
