@@ -1,13 +1,13 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <istream>
 #include <NvInfer.h>
 #include <unordered_map>
 #include <atomic>
 #include <memory>
 #include "../util/RWMutex/rwmutex.hpp"
-
 
 enum ModelType
 {
@@ -19,10 +19,12 @@ typedef struct EngineInfo
 {
     std::shared_ptr<nvinfer1::ICudaEngine> engine;
     std::string engine_serialize;
-    std::string InputName;
-    std::string OutputName;
-    uint32_t InputSize;
-    uint32_t OutputSize;
+    std::vector<std::string> InputName;  //可能有多个输入
+    std::vector<std::string> OutputName; //可能有多个输出
+    std::vector<nvinfer1::Dims> InputSize;
+    std::vector<nvinfer1::Dims> OutputSize;
+    std::vector<nvinfer1::DataType> InputType;
+    std::vector<nvinfer1::DataType> OutputType;
 } EngineInfo;
 
 // model_table 全局唯一索引与模型名称对照表
@@ -65,8 +67,8 @@ public:
 
     // Compute 开始根据模型执行计算
     // \param model_name 需要调用的模型的名称
-    // \param input 指向host_memory的数据指针
-    virtual void *Compute(std::string model_name, void *input) = 0;
+    // \param input 载有数据载荷的vector
+    virtual std::vector<std::vector<char>> Compute(std::string model_name, std::vector<std::vector<char>> &input) = 0;
 };
 
 // end of base.hpp
