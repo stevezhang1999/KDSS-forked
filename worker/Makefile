@@ -25,7 +25,13 @@ LIB_DIR := $(CUDA_LIB_DIR)
 LIB_DIR += -L$(TRT_LIB_DIR)
 LIB_DIR += -L$(KGMALLOC_LIB_DIR)
 
-LIBS := -lumap -lhash -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser -lcudnn -lcublas -lcudart -lrt -ldl -lpthread -lcurand
+CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand
+TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
+KGMALLOC_LIBS := -lumap -lhash
+LIBS := -lrt -ldl -lpthread
+LIBS += $(KGMALLOC_LIBS)
+LIBS += $(CUDA_LIBS)
+LIBS += $(TRT_LIBS)
 
 CFLAGS := -g -std=c++11 -Wno-deprecated-declarations -I$(INCLUDE_DIR) -L$(LIB_DIR) $(LIBS)
 
