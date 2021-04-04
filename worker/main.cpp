@@ -24,7 +24,10 @@ int main()
     int loaded = transfer_worker.Load("mnist", "mnist.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/mnist/", ONNX_FILE);
     std::vector<std::vector<char>> input;
     preProcessHostInput(input, test_data, 28 * 28, nvinfer1::DataType::kFLOAT);
-    auto h_output = computation_worker.Compute("mnist", input);
+    std::vector<std::vector<char>> h_output;
+    for (int i = 0; i < 20;i++)
+        MEASURE_TIME(h_output = computation_worker.Compute("mnist", input));
+    return 0;
     if (!h_output.size())
     {
         gLogError << "Invaild output, exit..." << endl;
@@ -41,7 +44,7 @@ int main()
             return -1;
         }
     }
-    
+
     {
         uint64_t outputSize = 0;
         int executed = computation_worker.GetModelOutputSize("mnist", 0, &outputSize);
