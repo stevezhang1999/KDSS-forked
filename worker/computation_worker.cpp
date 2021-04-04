@@ -27,8 +27,9 @@ std::string ComputationWorker::GetModelName(int index) const
     return iter->second;
 }
 
-void *ComputationWorker::Compute(std::string model_name, void *input)
+std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input)
 {
+    std::vector<std::vector<char>> result;
     // 从table中取得已注册的引擎
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -36,13 +37,13 @@ void *ComputationWorker::Compute(std::string model_name, void *input)
     if (iter == engine_table.end())
     {
         gLogError << "engine not vaild." << endl;
-        return nullptr;
+        return result;
     }
     nvinfer1::ICudaEngine *engine = iter->second.engine.get();
     if (!engine)
     {
         gLogError << "engine not vaild." << endl;
-        return nullptr;
+        return result;
     }
 
     IHostMemory *h_memory = engine->serialize();
@@ -66,93 +67,147 @@ void *ComputationWorker::Compute(std::string model_name, void *input)
     if (!context)
     {
         gLogError << "engine start failed, context error." << endl;
-        return nullptr;
+        return result;
     }
-    int input_index = engine->getBindingIndex(iter->second.InputName.c_str());
-    int output_index = engine->getBindingIndex(iter->second.OutputName.c_str());
+    // int input_index = engine->getBindingIndex(iter->second.InputName[0].c_str());
+    // int output_index = engine->getBindingIndex(iter->second.OutputName[0].c_str());
 
-    void *d_input = WrapInput(input, iter->second.InputSize);
-    // void *d_input;
-    // cudaMalloc(&d_input, 28 * 28 * sizeof(float));
-    // cudaMemcpy(d_input, input, 28 * 28 * sizeof(float), cudaMemcpyHostToDevice);
-
-    void *buffers[2];
-    buffers[input_index] = d_input;
-    void *d_output = kg_allocator->allocate(iter->second.OutputSize, 0, 0);
-    if (!d_output)
+    // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
+    int input_num = iter->second.InputName.size();
+    int output_num = iter->second.OutputName.size();
+    void **buffers = (void **)malloc(sizeof(void *) * (input_num + output_num));
+    if (!buffers)
     {
-        gLogError << "allocate output memory failed." << endl;
-        return nullptr;
+        gLogError << __CXX_PREFIX << "Buffer for computation alloc failed." << endl;
+        return result;
     }
-    buffers[output_index] = d_output;
+    memset(buffers, 0, sizeof(void *) * (input_num + output_num));
+
+    // 处理host端input到device端input
+    for (int i = 0; i < iter->second.InputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int input_i_index = engine->getBindingIndex(iter->second.InputName.at(i).c_str());
+        if (input_i_index >= (input_num + output_num))
+        {
+            // This should not happen
+            gLogInfo << "Buffers not long enough, reallocating..." << endl;
+            buffers = (void **)realloc(buffers, sizeof(void *) * input_i_index);
+        }
+        uint64_t input_i_size;
+        int res = this->GetModelInputSize(model_name, iter->second.InputName.at(i), &input_i_size);
+        if (res)
+        {
+            // This should not happen
+            gLogError << __CXX_PREFIX << "Can not get input size of : " << iter->second.InputName.at(i);
+            return result;
+        }
+        // 测试用
+        // 显示一下输入数据到底是什么
+        gLogInfo << "Input " << i << ":" << endl;
+        {
+            float *temp = (float *)new char[input_i_size];
+            memset(temp, 0, input_i_size);
+            memcpy((void *)temp, (void *)input[i].data(), input_i_size);
+            for (int j = 0; j < 28; j++)
+            {
+                for (int k = 0; k < 28; k++)
+                {
+                    cout << temp[28 * j + k] << " ";
+                }
+                cout << endl;
+            }
+            free(temp);
+        }
+        buffers[input_i_index] = WrapInput(input[i].data(), input_i_size);
+    }
+
+    // 申请device端output空间
+    for (int i = 0; i < iter->second.OutputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int output_i_index = engine->getBindingIndex(iter->second.OutputName.at(i).c_str());
+        if (output_i_index >= (input_num + output_num))
+        {
+            // This should not happen
+            gLogInfo << "Buffers not long enough, reallocating..." << endl;
+            buffers = (void **)realloc(buffers, sizeof(void *) * output_i_index);
+        }
+        uint64_t output_i_size;
+        int res = this->GetModelOutputSize(model_name, iter->second.OutputName.at(i), &output_i_size);
+        if (res)
+        {
+            // This should not happen
+            gLogError << __CXX_PREFIX << "Can not get output size of : " << iter->second.OutputName.at(i);
+            return result;
+        }
+        buffers[output_i_index] = kg_allocator->allocate(output_i_size, 0, 0);
+    }
+
     bool status = context->execute(1, buffers);
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
-        return nullptr;
+        return result;
     }
-    void *h_output = UnwrapOutput(d_output);
-    // float *output = new float[10];
-    // cudaError_t err = cudaMemcpy(output, buffers[output_index], sizeof(float) * 10, cudaMemcpyDeviceToHost);
-    return h_output;
+
+    // 对output逐个unwrap
+    void **h_output = (void **)malloc(sizeof(void *) * output_num);
+    if (!h_output)
+    {
+        gLogError << __CXX_PREFIX << "Output allocation failed." << endl;
+        return result;
+    }
+
+    // 处理device端output到host端output
+    for (int i = 0; i < iter->second.OutputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int output_i_index = engine->getBindingIndex(iter->second.OutputName.at(i).c_str());
+
+        uint64_t output_i_size;
+        int res = this->GetModelOutputSize(model_name, iter->second.OutputName.at(i), &output_i_size);
+        if (res)
+        {
+            // This should not happen
+            gLogError << __CXX_PREFIX << "Can not get output size of : " << iter->second.OutputName.at(i);
+            return result;
+        }
+        h_output[i] = UnwrapOutput(buffers[output_i_index]);
+        if (!h_output[i])
+        {
+            // 释放所有h_output[0,i-1]的内存
+            for (int j = 0; j < i; j++)
+            {
+                free(h_output[j]);
+            }
+            free(h_output);
+            h_output = nullptr;
+            result.clear();
+            break;
+        }
+        // 对h_output进行逐字节写入到result
+        std::vector<char> temp;
+        for (int j = 0; j < output_i_size; j++)
+        {
+            temp.push_back(*((char *)h_output[i] + j));
+        }
+        result.push_back(temp);
+    }
+    free(buffers);
+    // 释放h_output
+    for (int i = 0; i < iter->second.OutputName.size(); i++)
+    {
+        free(h_output[i]);
+    }
+    free(h_output);
+    return result;
+    // void *h_output = UnwrapOutput(d_output);
+    // return h_output;
 }
 
-// GetModelInputSize 获取指定模型的输入大小
-uint64_t ComputationWorker::GetModelInputSize(std::string model_name) const
-{
-    uint64_t res = 1;
-    et_rw_mu.rlock();
-    auto iter = engine_table.find(model_name);
-    et_rw_mu.runlock();
-    if (iter == engine_table.end())
-    {
-        gLogError << "engine not vaild." << endl;
-        return 0;
-    }
-    nvinfer1::ICudaEngine *engine = iter->second.engine.get();
-    if (!engine)
-    {
-        gLogError << "engine not vaild." << endl;
-        return 0;
-    }
-    int input_index = engine->getBindingIndex(iter->second.InputName.c_str());
-    auto inputDims = engine->getBindingDimensions(input_index);
-    for (int i = 0; i < inputDims.nbDims; i++)
-    {
-        res *= inputDims.d[i];
-    }
-    return res;
-}
-
-// GetModelOutputSize 获取指定模型的输出大小
-uint64_t ComputationWorker::GetModelOutputSize(std::string model_name) const
-{
-    uint64_t res = 1;
-    et_rw_mu.rlock();
-    auto iter = engine_table.find(model_name);
-    et_rw_mu.runlock();
-    if (iter == engine_table.end())
-    {
-        gLogError << "engine not vaild." << endl;
-        return 0;
-    }
-    nvinfer1::ICudaEngine *engine = iter->second.engine.get();
-    if (!engine)
-    {
-        gLogError << "engine not vaild." << endl;
-        return 0;
-    }
-    int output_index = engine->getBindingIndex(iter->second.OutputName.c_str());
-    auto outputDims = engine->getBindingDimensions(output_index);
-    for (int i = 0; i < outputDims.nbDims; i++)
-    {
-        res *= outputDims.d[i];
-    }
-    return res;
-}
-
-// GetModelInputDim 获取指定模型的输入总大小
-const int *ComputationWorker::GetModelInputDim(std::string model_name) const
+// GetModelInputSize 获取指定模型的输入总大小
+int ComputationWorker::GetModelInputSize(std::string model_name, int index, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -160,20 +215,38 @@ const int *ComputationWorker::GetModelInputDim(std::string model_name) const
     if (iter == engine_table.end())
     {
         gLogError << "engine not vaild." << endl;
-        return nullptr;
+        return -1;
     }
-    nvinfer1::ICudaEngine *engine = iter->second.engine.get();
-    if (!engine)
+
+    EngineInfo ef = iter->second;
+    *result = 1;
+    for (int i = 0; i < ef.InputSize.at(index).nbDims; i++)
     {
-        gLogError << "engine not vaild." << endl;
-        return nullptr;
+        if (ef.InputSize.at(index).d[i] == 0)
+            continue;
+        *result *= ef.InputSize.at(index).d[i];
     }
-    int input_index = engine->getBindingIndex(iter->second.InputName.c_str());
-    return engine->getBindingDimensions(input_index).d;
+    // 还需要乘系数因子
+    int factor = 1;
+    switch (ef.InputType.at(index))
+    {
+    case nvinfer1::DataType::kFLOAT:
+    case nvinfer1::DataType::kHALF:
+        factor = sizeof(float);
+        break;
+    case nvinfer1::DataType::kINT32:
+        factor = sizeof(int32_t);
+        break;
+    case nvinfer1::DataType::kINT8:
+        factor = sizeof(int8_t);
+        break;
+    }
+    *result *= factor;
+
+    return 0;
 }
 
-// GetModelOutputDim 获取指定模型的输出总大小
-const int *ComputationWorker::GetModelOutputDim(std::string model_name) const
+int ComputationWorker::GetModelInputSize(std::string model_name, std::string input_name, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -181,16 +254,130 @@ const int *ComputationWorker::GetModelOutputDim(std::string model_name) const
     if (iter == engine_table.end())
     {
         gLogError << "engine not vaild." << endl;
-        return nullptr;
+        return -1;
     }
-    nvinfer1::ICudaEngine *engine = iter->second.engine.get();
-    if (!engine)
+
+    EngineInfo ef = iter->second;
+    *result = 1;
+
+    // 先找到该输出的名称对应的索引
+    auto input_iter = std::find(ef.InputName.begin(), ef.InputName.end(), input_name);
+    if (input_iter == ef.InputName.end())
+        return -1;
+    int index = std::distance(ef.InputName.begin(), input_iter);
+
+    *result = 1;
+    for (int i = 0; i < ef.InputSize.at(index).nbDims; i++)
+    {
+        if (ef.InputSize.at(index).d[i] == 0)
+            continue;
+        *result *= ef.InputSize.at(index).d[i];
+    }
+    // 还需要乘系数因子
+    int factor = 1;
+    switch (ef.InputType.at(index))
+    {
+    case nvinfer1::DataType::kFLOAT:
+    case nvinfer1::DataType::kHALF:
+        factor = sizeof(float);
+        break;
+    case nvinfer1::DataType::kINT32:
+        factor = sizeof(int32_t);
+        break;
+    case nvinfer1::DataType::kINT8:
+        factor = sizeof(int8_t);
+        break;
+    }
+    *result *= factor;
+
+    return 0;
+}
+
+// GetModelOutputSize 获取指定模型的输出总大小
+int ComputationWorker::GetModelOutputSize(std::string model_name, int index, uint64_t *result) const
+{
+    et_rw_mu.rlock();
+    auto iter = engine_table.find(model_name);
+    et_rw_mu.runlock();
+    if (iter == engine_table.end())
     {
         gLogError << "engine not vaild." << endl;
-        return nullptr;
+        return -1;
     }
-    int output_index = engine->getBindingIndex(iter->second.OutputName.c_str());
-    return engine->getBindingDimensions(output_index).d;
+
+    EngineInfo ef = iter->second;
+    *result = 1;
+    for (int i = 0; i < ef.OutputSize.at(index).nbDims; i++)
+    {
+        if (ef.OutputSize.at(index).d[i] == 0)
+            continue;
+        *result *= ef.OutputSize.at(index).d[i];
+    }
+    // 还需要乘系数因子
+    int factor = 1;
+    switch (ef.OutputType.at(index))
+    {
+    case nvinfer1::DataType::kFLOAT:
+    case nvinfer1::DataType::kHALF:
+        factor = sizeof(float);
+        break;
+    case nvinfer1::DataType::kINT32:
+        factor = sizeof(int32_t);
+        break;
+    case nvinfer1::DataType::kINT8:
+        factor = sizeof(int8_t);
+        break;
+    }
+    *result *= factor;
+
+    return 0;
+}
+
+// GetModelOutputSize 获取指定模型的输出总大小
+int ComputationWorker::GetModelOutputSize(std::string model_name, std::string output_name, uint64_t *result) const
+{
+    et_rw_mu.rlock();
+    auto iter = engine_table.find(model_name);
+    et_rw_mu.runlock();
+    if (iter == engine_table.end())
+    {
+        gLogError << "engine not vaild." << endl;
+        return -1;
+    }
+
+    EngineInfo ef = iter->second;
+    *result = 1;
+
+    // 先找到该输出的名称对应的索引
+    auto output_iter = std::find(ef.OutputName.begin(), ef.OutputName.end(), output_name);
+    if (output_iter == ef.OutputName.end())
+        return -1;
+    int index = std::distance(ef.OutputName.begin(), output_iter);
+
+    *result = 1;
+    for (int i = 0; i < ef.OutputSize.at(index).nbDims; i++)
+    {
+        if (ef.OutputSize.at(index).d[i] == 0)
+            continue;
+        *result *= ef.OutputSize.at(index).d[i];
+    }
+    // 还需要乘系数因子
+    int factor = 1;
+    switch (ef.OutputType.at(index))
+    {
+    case nvinfer1::DataType::kFLOAT:
+    case nvinfer1::DataType::kHALF:
+        factor = sizeof(float);
+        break;
+    case nvinfer1::DataType::kINT32:
+        factor = sizeof(int32_t);
+        break;
+    case nvinfer1::DataType::kINT8:
+        factor = sizeof(int8_t);
+        break;
+    }
+    *result *= factor;
+    return 0;
 }
 
 void *WrapInput(void *host_memory, uint64_t size)
@@ -210,7 +397,12 @@ void *UnwrapOutput(void *device_memory)
 {
     uint64_t size = dynamic_cast<KGAllocator *>(kg_allocator.get())->GetDeviceMemorySize(device_memory);
     // int *h_ptr = static_cast<int *>((void *)new char[size]);
-    float *h_ptr = new float[size / sizeof(float)];
+    void *h_ptr = malloc(size);
+    if (!h_ptr)
+    {
+        gLogError << __CXX_PREFIX << "Can not malloc h_ptr" << endl;
+        return nullptr;
+    }
     memset(h_ptr, 0, size);
     int result = 0;
     check_cuda_success(cudaMemcpy(h_ptr, device_memory, size, cudaMemcpyDeviceToHost), result);
@@ -220,16 +412,17 @@ void *UnwrapOutput(void *device_memory)
     return h_ptr;
 }
 
-EngineInfo *ComputationWorker::GetModel(std::string model_name) const
+int ComputationWorker::GetModel(std::string model_name, EngineInfo *ef) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
     if (iter == engine_table.end())
     {
         et_rw_mu.runlock();
-        return nullptr;
+        return -1;
     }
     et_rw_mu.runlock();
-    return new EngineInfo(iter->second);
+    *ef = iter->second;
+    return 0;
 }
 // end of computation_worker.cpp
