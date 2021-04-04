@@ -11,7 +11,7 @@ using std::cerr;
 using std::endl;
 using std::string;
 
-extern nvinfer1::IGpuAllocator *kg_allocator;
+extern std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator;
 
 template <typename T>
 using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
@@ -35,19 +35,35 @@ TransferWorker::~TransferWorker()
     }
     et_rw_mu.unlock();
 }
+
+bool constructNetwork(SampleUniquePtr<nvinfer1::IBuilder> &builder,
+                      SampleUniquePtr<nvinfer1::INetworkDefinition> &network, SampleUniquePtr<nvinfer1::IBuilderConfig> &config,
+                      SampleUniquePtr<nvonnxparser::IParser> &parser, std::string file_path, std::string model_file)
+{
+    auto parsed = parser->parseFromFile(
+        (file_path + model_file).c_str(), static_cast<int>(ILogger::Severity::kINFO));
+    if (!parsed)
+    {
+        return false;
+    }
+
+    builder->setMaxBatchSize(1);
+    config->setMaxWorkspaceSize(16_MiB);
+
+    return true;
+}
+
 int TransferWorker::Load(std::string model_name, std::string model_file, std::string file_path, ModelType type)
 {
-    auto builder = SampleUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger.getTRTLogger()));
+    // 从网络构建引擎，并保存在engine_table中
+    std::shared_ptr<nvinfer1::ICudaEngine> mEngine;
+
+    auto builder = SampleUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger));
     if (!builder)
     {
         return -1;
     }
-    if (!kg_allocator)
-    {
-        kg_allocator = new KGAllocator();
-    }
-    builder->setGpuAllocator(kg_allocator);
-
+    builder->setGpuAllocator(kg_allocator.get());
     auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetwork());
     if (!network)
     {
@@ -64,19 +80,28 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     {
     case ONNX_FILE:
     {
-        auto parser = SampleUniquePtr<nvonnxparser::IParser>(nvonnxparser::createParser(*network, gLogger.getTRTLogger()));
+        auto parser = SampleUniquePtr<nvonnxparser::IParser>(nvonnxparser::createParser(*network, gLogger));
         if (!parser)
         {
             return -1;
         }
-        auto parsed = parser->parseFromFile((file_path + model_file).c_str(), static_cast<int>(gLogger.getReportableSeverity()));
-        if (!parsed)
+        // auto parsed = parser->parseFromFile((file_path + model_file).c_str(), static_cast<int>(gLogger.getReportableSeverity()));
+        // if (!parsed)
+        // {
+        //     return -1;
+        // }
+        // builder->setMaxBatchSize(1);
+        // config->setMaxWorkspaceSize(32 * (1 << 20));
+        auto constructed = constructNetwork(builder, network, config, parser, file_path, model_file);
+        if (!constructed)
         {
-            return -1;
+            return false;
         }
-        builder->setMaxBatchSize(1);
-        config->setMaxWorkspaceSize(32 * (1 << 20));
-        // config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(builder->buildEngineWithConfig(*network, *config), samplesCommon::InferDeleter());
+        if (!mEngine)
+        {
+            return false;
+        }
         break;
     }
     case TRT_ENGINE:
@@ -86,12 +111,56 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     default:
         break;
     }
-    // 从网络构建引擎，并保存在engine_table中
-    auto engine = builder->buildEngineWithConfig(*network, *config);
-    if (!engine)
+
+    // 我们保存一下当前引擎序列化后的字符串表现形式
+    IHostMemory *h_memory = mEngine->serialize();
+    std::string serialize_str;
+    serialize_str.resize(h_memory->size());
+    memcpy((void *)serialize_str.data(), h_memory->data(), h_memory->size());
+
+    int input_index = mEngine->getBindingIndex("Input3");
+    int output_index = mEngine->getBindingIndex("Plus214_Output_0");
+
+    // 测试引擎
+    auto context = SampleUniquePtr<nvinfer1::IExecutionContext>(mEngine->createExecutionContext());
+    if (!context)
     {
-        return -1;
+        return false;
     }
+    void *d_input;
+    float test_data[28 * 28];
+    memset(test_data, 0, sizeof(float) * 28 * 28);
+    std::ifstream in("/home/lijiakang/TensorRT-6.0.1.5/samples/sampleOnnxMNIST/hostDataBuffer.txt", ios_base::in);
+    for (int i = 0; i < 28 * 28; i++)
+    {
+        in >> test_data[i];
+    }
+    in.close();
+    cudaMalloc(&d_input, 28 * 28 * sizeof(float));
+    cudaMemcpy(d_input, test_data, 28 * 28 * sizeof(float), cudaMemcpyHostToDevice);
+    void *buffers[2];
+    buffers[input_index] = d_input;
+    // void *d_output = kg_allocator->allocate(iter->second.OutputSize, 0, 0);
+    void *d_output;
+    cudaMalloc(&d_output, 40);
+    // void *output;
+    // cudaMalloc(&output, iter->second.OutputSize);
+    if (!d_output)
+    {
+        gLogError << "allocate output memory failed." << endl;
+    }
+    buffers[output_index] = d_output;
+    bool status = context->execute(1, buffers);
+    if (!status)
+    {
+        gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
+    }
+    // void *output = UnwrapOutput(d_output);
+    float output[10];
+    cudaError_t err = cudaMemcpy(output, buffers[output_index], sizeof(float) * 10, cudaMemcpyDeviceToHost);
+    cudaFree(d_input);
+    cudaFree(d_output);
+
     // 生成索引
     mt_rw_mu.lock();
     max_index++;
@@ -100,25 +169,18 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     mt_rw_mu.unlock();
 
     // 获取输入/输出最大空间
-    uint32_t inputMaxSize = 0UL;
-    uint32_t outputMaxSize = 0UL;
+    uint32_t inputMaxSize = 1UL;
+    uint32_t outputMaxSize = 1UL;
 
-    auto inputDims = network->getInput(0)->getDimensions();
-    auto outputDims = network->getOutput(0)->getDimensions();
+    auto inputDims = mEngine->getBindingDimensions(input_index);
+    auto outputDims = mEngine->getBindingDimensions(output_index);
 
     // 在batch_size = 1的情况下，通常i不会超过3（CHW），对于灰度图来说，i一般为2（HW）
     for (int i = 0; i < inputDims.nbDims; i++)
     {
         if (inputDims.d[i] == 0)
             continue;
-        if (inputMaxSize == 0)
-        {
-            inputMaxSize += sizeof(float) * inputDims.d[i];
-        }
-        else
-        {
-            inputMaxSize *= sizeof(float) * inputDims.d[i];
-        }
+        inputMaxSize *= inputDims.d[i];
     }
 
     // 在batch_size = 1的情况下，对于image_classfication来说，通常i不会超过3（CHW），对于灰度图来说，i一般为2（HW）
@@ -126,30 +188,193 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     {
         if (outputDims.d[i] == 0)
             continue;
-        if (outputMaxSize == 0)
-        {
-            outputMaxSize += sizeof(float) * outputDims.d[i];
-        }
-        else
-        {
-            outputMaxSize *= sizeof(float) * outputDims.d[i];
-        }
+        outputMaxSize *= outputDims.d[i];
     }
 
     // 插入到engine_table
     et_rw_mu.lock();
     EngineInfo ef = {
-        .engine = engine,
-        .InputName = network->getInput(0)->getName(),
-        .OutputName = network->getOutput(0)->getName(),
+        .engine = mEngine,
+        .engine_serialize = serialize_str,
+        .InputName = "Input3",
+        .OutputName = "Plus214_Output_0",
     };
-    ef.InputSize = inputMaxSize;
-    ef.OutputSize = outputMaxSize;
+    // 获得输入输出类型，对inputMaxSize和outputMaxSize乘以系数
+    int input_factor = 0;
+    int output_factor = 0;
+    auto inputType = nvinfer1::DataType::kFLOAT;
+    switch (inputType)
+    {
+    case nvinfer1::DataType::kFLOAT:
+    case nvinfer1::DataType::kHALF:
+        input_factor = sizeof(float);
+        break;
+    case nvinfer1::DataType::kINT32:
+        input_factor = sizeof(int32_t);
+        break;
+    case nvinfer1::DataType::kINT8:
+        input_factor = sizeof(int8_t);
+        break;
+    }
+    auto outputType = nvinfer1::DataType::kFLOAT;
+    switch (outputType)
+    {
+    case nvinfer1::DataType::kFLOAT:
+    case nvinfer1::DataType::kHALF:
+        output_factor = sizeof(float);
+        break;
+    case nvinfer1::DataType::kINT32:
+        output_factor = sizeof(int32_t);
+        break;
+    case nvinfer1::DataType::kINT8:
+        output_factor = sizeof(int8_t);
+        break;
+    }
+    ef.InputSize = input_factor * inputMaxSize;
+    ef.OutputSize = output_factor * outputMaxSize;
     engine_table.insert(std::pair<std::string, EngineInfo>(model_name, ef));
     et_rw_mu.unlock();
-
     return current_index;
 }
+
+// int TransferWorker::Load(std::string model_name, std::string model_file, std::string file_path, ModelType type, void *test_input)
+// {
+//     // 这个版本的Load会直接反序列化由本机标准代码保存的引擎
+//     std::string cached_engine = "";
+//     std::ifstream fin("/home/lijiakang/TensorRT-6.0.1.5/data/mnist/mnist.trtengine");
+//     while (fin.peek() != EOF)
+//     { // 使用fin.peek()防止文件读取时无限循环
+//         std::stringstream buffer;
+//         buffer << fin.rdbuf();
+//         cached_engine.append(buffer.str());
+//     }
+//     fin.close();
+
+//     auto runtime = createInferRuntime(gLogger);
+//     if (!runtime)
+//     {
+//         return -1;
+//     }
+//     auto engine = std::shared_ptr<nvinfer1::ICudaEngine>(runtime->deserializeCudaEngine(cached_engine.data(), cached_engine.size()), samplesCommon::InferDeleter());
+//     if (!engine)
+//     {
+//         return -1;
+//     }
+
+//     // 我们保存一下当前引擎序列化后的字符串表现形式
+//     IHostMemory *h_memory = engine->serialize();
+//     std::string serialize_str;
+//     serialize_str.resize(h_memory->size());
+//     memcpy((void *)serialize_str.data(), h_memory->data(), h_memory->size());
+
+//     // 测试引擎
+//     auto context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
+//     if (!context)
+//     {
+//         return false;
+//     }
+//     int input_index = engine->getBindingIndex("Input3");
+//     int output_index = engine->getBindingIndex("Plus214_Output_0");
+//     void *d_input;
+//     cudaMalloc(&d_input, 28 * 28 * sizeof(float));
+//     cudaMemcpy(d_input, test_input, 28 * 28 * sizeof(float), cudaMemcpyHostToDevice);
+//     void *buffers[2];
+//     buffers[input_index] = d_input;
+//     // void *d_output = kg_allocator->allocate(iter->second.OutputSize, 0, 0);
+//     void *d_output;
+//     cudaMalloc(&d_output, 40);
+//     // void *output;
+//     // cudaMalloc(&output, iter->second.OutputSize);
+//     if (!d_output)
+//     {
+//         gLogError << "allocate output memory failed." << endl;
+//     }
+//     buffers[output_index] = d_output;
+//     bool status = context->execute(1, buffers);
+//     if (!status)
+//     {
+//         gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
+//     }
+//     // void *output = UnwrapOutput(d_output);
+//     float output[10];
+//     cudaError_t err = cudaMemcpy(output, buffers[output_index], sizeof(float) * 10, cudaMemcpyDeviceToHost);
+//     cudaFree(d_input);
+//     cudaFree(d_output);
+//     // 生成索引
+//     mt_rw_mu.lock();
+//     max_index++;
+//     int current_index = max_index.load();
+//     model_table.insert(std::pair<int, std::string>(current_index, model_name));
+//     mt_rw_mu.unlock();
+
+//     // 获取输入/输出最大空间
+//     uint32_t inputMaxSize = 1UL;
+//     uint32_t outputMaxSize = 1UL;
+
+//     auto inputDims = engine->getBindingDimensions(input_index);
+//     auto outputDims = engine->getBindingDimensions(output_index);
+
+//     // 在batch_size = 1的情况下，通常i不会超过3（CHW），对于灰度图来说，i一般为2（HW）
+//     for (int i = 0; i < inputDims.nbDims; i++)
+//     {
+//         if (inputDims.d[i] == 0)
+//             continue;
+//         inputMaxSize *= inputDims.d[i];
+//     }
+
+//     // 在batch_size = 1的情况下，对于image_classfication来说，通常i不会超过3（CHW），对于灰度图来说，i一般为2（HW）
+//     for (int i = 0; i < outputDims.nbDims; i++)
+//     {
+//         if (outputDims.d[i] == 0)
+//             continue;
+//         outputMaxSize *= outputDims.d[i];
+//     }
+
+//     // 插入到engine_table
+//     et_rw_mu.lock();
+//     EngineInfo ef = {
+//         .engine = engine,
+//         .engine_serialize = serialize_str,
+//         .InputName = "Input3",
+//         .OutputName = "Plus214_Output_0",
+//     };
+//     // 获得输入输出类型，对inputMaxSize和outputMaxSize乘以系数
+//     int input_factor = 0;
+//     int output_factor = 0;
+//     auto inputType = nvinfer1::DataType::kFLOAT;
+//     switch (inputType)
+//     {
+//     case nvinfer1::DataType::kFLOAT:
+//     case nvinfer1::DataType::kHALF:
+//         input_factor = sizeof(float);
+//         break;
+//     case nvinfer1::DataType::kINT32:
+//         input_factor = sizeof(int32_t);
+//         break;
+//     case nvinfer1::DataType::kINT8:
+//         input_factor = sizeof(int8_t);
+//         break;
+//     }
+//     auto outputType = nvinfer1::DataType::kFLOAT;
+//     switch (outputType)
+//     {
+//     case nvinfer1::DataType::kFLOAT:
+//     case nvinfer1::DataType::kHALF:
+//         output_factor = sizeof(float);
+//         break;
+//     case nvinfer1::DataType::kINT32:
+//         output_factor = sizeof(int32_t);
+//         break;
+//     case nvinfer1::DataType::kINT8:
+//         output_factor = sizeof(int8_t);
+//         break;
+//     }
+//     ef.InputSize = input_factor * inputMaxSize;
+//     ef.OutputSize = output_factor * outputMaxSize;
+//     engine_table.insert(std::pair<std::string, EngineInfo>(model_name, ef));
+//     et_rw_mu.unlock();
+//     return current_index;
+// }
 
 int TransferWorker::Unload(std::string model_name)
 {
@@ -157,7 +382,10 @@ int TransferWorker::Unload(std::string model_name)
     et_rw_mu.lock();
     auto iter = engine_table.find(model_name);
     if (iter == engine_table.end())
+    {
+        et_rw_mu.unlock();
         return -1;
+    }
     engine_table.erase(iter);
     et_rw_mu.unlock();
 

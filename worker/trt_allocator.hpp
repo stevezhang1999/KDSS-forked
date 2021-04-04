@@ -1,8 +1,12 @@
 #pragma once
 
+#include "kgmalloc.hpp"
 #include <NvInferRuntimeCommon.h>
 #include <unordered_map>
 #include <mutex>
+#include <iostream>
+#include <sstream>
+#include <memory>
 
 class KGAllocator final : public nvinfer1::IGpuAllocator
 {
@@ -35,13 +39,46 @@ public:
 
     virtual ~KGAllocator();
 
+    uint64_t GetDeviceMemorySize(void *device_memory)
+    {
+        auto iter = node_pool.find(device_memory);
+        if (iter == node_pool.end())
+        {
+            getLogger()->log(nvinfer1::ILogger::Severity::kERROR, "device_memory invaild!\n");
+            return 0;
+        }
+        CudaMemNode **node = static_cast<CudaMemNode **>(iter->second);
+        // fix:该chunk不一定只有一个结点
+        uint64_t chunk_size = 0;
+        uint hash = (*node)->meta.hash;
+        List *head = static_cast<List *>((void *)(*node));
+        while (head && head->data.meta.hash == hash)
+        {
+            chunk_size += head->data.meta.length;
+            head = head->next;
+        }
+        // return (*node)->meta.length;
+        return chunk_size;
+    }
+
 private:
     // node_pool 建立从d_ptr到node_ptr的地址的连接
     std::unordered_map<void *, void *> node_pool;
     // alloc_mu allocator全局锁，所有可能对memory_pool产生读写冲突的地方都由mu控制
     std::mutex alloc_mu;
+
+    // 打印UMapPtrToAddr/UMapAddrToPtr/node_pool
+    std::string PrintUMap(std::unordered_map<void *, void *> umap)
+    {
+        std::ostringstream oss;
+        for (auto n : umap)
+        {
+            oss << n.first << " -> " << n.second << std::endl;
+        }
+        return oss.str();
+    }
 };
 
-extern nvinfer1::IGpuAllocator *kg_allocator;
+extern std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator;
 
 // end of trt_allocator.hpp

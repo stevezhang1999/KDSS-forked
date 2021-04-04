@@ -5,7 +5,9 @@
 #include <NvInfer.h>
 #include <unordered_map>
 #include <atomic>
+#include <memory>
 #include "../util/RWMutex/rwmutex.hpp"
+
 
 enum ModelType
 {
@@ -15,7 +17,8 @@ enum ModelType
 
 typedef struct EngineInfo
 {
-    nvinfer1::ICudaEngine *engine;
+    std::shared_ptr<nvinfer1::ICudaEngine> engine;
+    std::string engine_serialize;
     std::string InputName;
     std::string OutputName;
     uint32_t InputSize;

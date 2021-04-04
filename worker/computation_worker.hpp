@@ -31,6 +31,22 @@ public:
     // \param model_name 需要调用的模型的名称
     // \param input 指向host_memory的数据指针
     virtual void *Compute(std::string model_name, void *input);
+    
+
+    // GetModelInputSize 获取指定模型的输入总大小
+    uint64_t GetModelInputSize(std::string model_name) const;
+
+    // GetModelOutputSize 获取指定模型的输出总大小
+    uint64_t GetModelOutputSize(std::string model_name) const;
+
+    // GetModelInputDim 获取指定模型的输入总大小
+    const int * GetModelInputDim(std::string model_name) const;
+
+    // GetModelOutputDim 获取指定模型的输出总大小
+    const int *GetModelOutputDim(std::string model_name) const;
+
+    // GetModelInfo 获取指定模型的信息
+    EngineInfo* GetModel(std::string model_name) const;
 };
 
 // end of computation_worker.hpp
