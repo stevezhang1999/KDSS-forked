@@ -1,4 +1,5 @@
 #include "computation_worker.hpp"
+#include "utils.h"
 #include "common.hpp"
 #include "common/logger.h" // On TensorRT/sample
 #include "common/common.h" // On TensorRT/samples
@@ -39,31 +40,17 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
         gLogError << "engine not vaild." << endl;
         return result;
     }
-    nvinfer1::ICudaEngine *engine = iter->second.engine.get();
+    EngineInfo ef = iter->second;
+    nvinfer1::ICudaEngine *engine = ef.engine.get();
     if (!engine)
     {
         gLogError << "engine not vaild." << endl;
         return result;
     }
 
-    IHostMemory *h_memory = engine->serialize();
-    std::string serialize_str;
-    serialize_str.resize(h_memory->size());
-    memcpy((void *)serialize_str.data(), h_memory->data(), h_memory->size());
-
-    // 判断是否和ef里面储存的序列化结果相等？
-    if (serialize_str == iter->second.engine_serialize)
-    {
-        gLogInfo << "Engine matched!" << endl;
-    }
-    else
-    {
-        gLogError << "Engine not matched!" << endl;
-        // 执行反序列化
-        engine = createInferRuntime(gLogger)->deserializeCudaEngine(iter->second.engine_serialize.data(), iter->second.engine_serialize.size());
-    }
-
-    auto context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
+    std::unique_ptr<nvinfer1::IExecutionContext, samplesCommon::InferDeleter>::unique_ptr context;
+    
+    MEASURE_TIME(context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext()));
     if (!context)
     {
         gLogError << "engine start failed, context error." << endl;
@@ -73,8 +60,8 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     // int output_index = engine->getBindingIndex(iter->second.OutputName[0].c_str());
 
     // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
-    int input_num = iter->second.InputName.size();
-    int output_num = iter->second.OutputName.size();
+    int input_num = ef.InputName.size();
+    int output_num = ef.OutputName.size();
     void **buffers = (void **)malloc(sizeof(void *) * (input_num + output_num));
     if (!buffers)
     {
@@ -84,10 +71,10 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     memset(buffers, 0, sizeof(void *) * (input_num + output_num));
 
     // 处理host端input到device端input
-    for (int i = 0; i < iter->second.InputName.size(); i++)
+    for (int i = 0; i < ef.InputName.size(); i++)
     {
         // 找到它们在全局中的索引
-        int input_i_index = engine->getBindingIndex(iter->second.InputName.at(i).c_str());
+        int input_i_index = ef.InputNetworkIndex.at(i);
         if (input_i_index >= (input_num + output_num))
         {
             // This should not happen
@@ -95,38 +82,21 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
             buffers = (void **)realloc(buffers, sizeof(void *) * input_i_index);
         }
         uint64_t input_i_size;
-        int res = this->GetModelInputSize(model_name, iter->second.InputName.at(i), &input_i_size);
+        int res = this->GetModelInputSize(model_name, ef.InputName.at(i), &input_i_size);
         if (res)
         {
             // This should not happen
-            gLogError << __CXX_PREFIX << "Can not get input size of : " << iter->second.InputName.at(i);
+            gLogError << __CXX_PREFIX << "Can not get input size of : " << ef.InputName.at(i);
             return result;
-        }
-        // 测试用
-        // 显示一下输入数据到底是什么
-        gLogInfo << "Input " << i << ":" << endl;
-        {
-            float *temp = (float *)new char[input_i_size];
-            memset(temp, 0, input_i_size);
-            memcpy((void *)temp, (void *)input[i].data(), input_i_size);
-            for (int j = 0; j < 28; j++)
-            {
-                for (int k = 0; k < 28; k++)
-                {
-                    cout << temp[28 * j + k] << " ";
-                }
-                cout << endl;
-            }
-            free(temp);
         }
         buffers[input_i_index] = WrapInput(input[i].data(), input_i_size);
     }
 
     // 申请device端output空间
-    for (int i = 0; i < iter->second.OutputName.size(); i++)
+    for (int i = 0; i < ef.OutputName.size(); i++)
     {
         // 找到它们在全局中的索引
-        int output_i_index = engine->getBindingIndex(iter->second.OutputName.at(i).c_str());
+        int output_i_index = ef.OutputNetworkIndex.at(i);
         if (output_i_index >= (input_num + output_num))
         {
             // This should not happen
@@ -134,17 +104,19 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
             buffers = (void **)realloc(buffers, sizeof(void *) * output_i_index);
         }
         uint64_t output_i_size;
-        int res = this->GetModelOutputSize(model_name, iter->second.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
-            gLogError << __CXX_PREFIX << "Can not get output size of : " << iter->second.OutputName.at(i);
+            gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return result;
         }
         buffers[output_i_index] = kg_allocator->allocate(output_i_size, 0, 0);
     }
 
-    bool status = context->execute(1, buffers);
+    // 执行模型
+    bool status;
+    status = context->execute(1, buffers);
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
@@ -160,17 +132,17 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     }
 
     // 处理device端output到host端output
-    for (int i = 0; i < iter->second.OutputName.size(); i++)
+    for (int i = 0; i < ef.OutputName.size(); i++)
     {
         // 找到它们在全局中的索引
-        int output_i_index = engine->getBindingIndex(iter->second.OutputName.at(i).c_str());
+        int output_i_index = engine->getBindingIndex(ef.OutputName.at(i).c_str());
 
         uint64_t output_i_size;
-        int res = this->GetModelOutputSize(model_name, iter->second.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
-            gLogError << __CXX_PREFIX << "Can not get output size of : " << iter->second.OutputName.at(i);
+            gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return result;
         }
         h_output[i] = UnwrapOutput(buffers[output_i_index]);
@@ -196,7 +168,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     }
     free(buffers);
     // 释放h_output
-    for (int i = 0; i < iter->second.OutputName.size(); i++)
+    for (int i = 0; i < ef.OutputName.size(); i++)
     {
         free(h_output[i]);
     }

@@ -25,6 +25,8 @@ typedef struct EngineInfo
     std::vector<nvinfer1::Dims> OutputSize;
     std::vector<nvinfer1::DataType> InputType;
     std::vector<nvinfer1::DataType> OutputType;
+    std::vector<uint> InputNetworkIndex; // 在Network中该input的index
+    std::vector<uint> OutputNetworkIndex; // 在Network中该output的index
 } EngineInfo;
 
 // model_table 全局唯一索引与模型名称对照表

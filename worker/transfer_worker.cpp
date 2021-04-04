@@ -131,6 +131,8 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
         ef.InputSize.push_back(network->getInput(i)->getDimensions());
         // 获取类型，存入
         ef.InputType.push_back(network->getInput(i)->getType());
+        // 获取在network中的索引，存入
+        ef.InputNetworkIndex.push_back(mEngine->getBindingIndex(network->getInput(i)->getName()));
     }
 
     for (int i = 0; i < network->getNbOutputs(); i++)
@@ -141,6 +143,8 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
         ef.OutputSize.push_back(network->getOutput(i)->getDimensions());
         // 获取类型，存入
         ef.OutputType.push_back(network->getOutput(i)->getType());
+        // 获取在network中的索引，存入
+        ef.OutputNetworkIndex.push_back(mEngine->getBindingIndex(network->getOutput(i)->getName()));
     }
     et_rw_mu.lock();
     engine_table.insert(std::pair<std::string, EngineInfo>(model_name, ef));
