@@ -48,8 +48,8 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
         return result;
     }
 
-    std::unique_ptr<nvinfer1::IExecutionContext, samplesCommon::InferDeleter>::unique_ptr context;
-    
+    SampleUniquePtr<nvinfer1::IExecutionContext> context;
+
     MEASURE_TIME(context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext()));
     if (!context)
     {
