@@ -29,24 +29,23 @@ public:
 
     // Compute 开始根据模型执行计算
     // \param model_name 需要调用的模型的名称
-    // \param input 指向host_memory的数据指针
-    virtual void *Compute(std::string model_name, void *input);
-    
+    // \param input 载有数据载荷的vector
+    virtual std::vector<std::vector<char>> Compute(std::string model_name, std::vector<std::vector<char>> &input);
 
-    // GetModelInputSize 获取指定模型的输入总大小
-    uint64_t GetModelInputSize(std::string model_name) const;
+    // GetModelInputSize 获取指定模型的输出总大小
+    int GetModelInputSize(std::string model_name, int index, uint64_t *result) const;
+
+    // GetModelInputSize 获取指定模型的输出总大小
+    int GetModelInputSize(std::string model_name, std::string output_name, uint64_t *result) const;
 
     // GetModelOutputSize 获取指定模型的输出总大小
-    uint64_t GetModelOutputSize(std::string model_name) const;
+    int GetModelOutputSize(std::string model_name, int index, uint64_t *result) const;
 
-    // GetModelInputDim 获取指定模型的输入总大小
-    const int * GetModelInputDim(std::string model_name) const;
-
-    // GetModelOutputDim 获取指定模型的输出总大小
-    const int *GetModelOutputDim(std::string model_name) const;
+    // GetModelOutputSize 获取指定模型的输出总大小
+    int GetModelOutputSize(std::string model_name, std::string output_name, uint64_t *result) const;
 
     // GetModelInfo 获取指定模型的信息
-    EngineInfo* GetModel(std::string model_name) const;
+    int GetModel(std::string model_name, EngineInfo *ef) const;
 };
 
 // end of computation_worker.hpp
