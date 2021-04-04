@@ -25,8 +25,18 @@ int main()
     std::vector<std::vector<char>> input;
     preProcessHostInput(input, test_data, 28 * 28, nvinfer1::DataType::kFLOAT);
     std::vector<std::vector<char>> h_output;
-    for (int i = 0; i < 20;i++)
+
+    // Cold start
+    h_output = computation_worker.Compute("mnist", input);
+    h_output = computation_worker.ComputeWithStream("mnist", input);
+
+    for (int i = 0; i < 20; i++)
+    {
+        cout << endl
+             << i << " times compute: " << endl;
         MEASURE_TIME(h_output = computation_worker.Compute("mnist", input));
+        MEASURE_TIME(h_output = computation_worker.ComputeWithStream("mnist", input));
+    }
     return 0;
     if (!h_output.size())
     {
