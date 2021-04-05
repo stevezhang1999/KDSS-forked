@@ -37,23 +37,23 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     et_rw_mu.runlock();
     if (iter == engine_table.end())
     {
-        gLogError << "engine not vaild." << endl;
+        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
         return result;
     }
     EngineInfo ef = iter->second;
     nvinfer1::ICudaEngine *engine = ef.engine.get();
     if (!engine)
     {
-        gLogError << "engine not vaild." << endl;
+        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
         return result;
     }
 
     SampleUniquePtr<nvinfer1::IExecutionContext> context;
 
-    MEASURE_TIME(context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext()));
+    context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
     if (!context)
     {
-        gLogError << "engine start failed, context error." << endl;
+        gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
         return result;
     }
     // int input_index = engine->getBindingIndex(iter->second.InputName[0].c_str());
@@ -187,23 +187,23 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     et_rw_mu.runlock();
     if (iter == engine_table.end())
     {
-        gLogError << "engine not vaild." << endl;
+        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
         return result;
     }
     EngineInfo ef = iter->second;
     nvinfer1::ICudaEngine *engine = ef.engine.get();
     if (!engine)
     {
-        gLogError << "engine not vaild." << endl;
+        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
         return result;
     }
 
     SampleUniquePtr<nvinfer1::IExecutionContext> context;
 
-    MEASURE_TIME(context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext()));
+    context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
     if (!context)
     {
-        gLogError << "engine start failed, context error." << endl;
+        gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
         return result;
     }
     // int input_index = engine->getBindingIndex(iter->second.InputName[0].c_str());
@@ -226,7 +226,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     check_cuda_success(cudaStreamCreate(&stream), res);
     if (res != 0)
     {
-        gLogError << "Can not create cuda stream." << endl;
+        gLogError << __CXX_PREFIX << "Can not create cuda stream." << endl;
         return result;
     }
     // 处理host端input到device端input
@@ -326,7 +326,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
         h_output[i] = malloc(output_i_size);
         if (!h_output[i])
         {
-            gLogError << "Can not allocate memory for h_output[i]" << endl;
+            gLogError << __CXX_PREFIX << "Can not allocate memory for h_output[i]" << endl;
             return result;
         }
         check_cuda_success(cudaMemcpyAsync(h_output[i], buffers[output_i_index], output_i_size, cudaMemcpyDeviceToHost, stream), res);
@@ -402,7 +402,7 @@ int ComputationWorker::GetModelInputSize(std::string model_name, int index, uint
     et_rw_mu.runlock();
     if (iter == engine_table.end())
     {
-        gLogError << "engine not vaild." << endl;
+        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
         return -1;
     }
 
@@ -441,7 +441,7 @@ int ComputationWorker::GetModelInputSize(std::string model_name, std::string inp
     et_rw_mu.runlock();
     if (iter == engine_table.end())
     {
-        gLogError << "engine not vaild." << endl;
+        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
         return -1;
     }
 
@@ -489,7 +489,7 @@ int ComputationWorker::GetModelOutputSize(std::string model_name, int index, uin
     et_rw_mu.runlock();
     if (iter == engine_table.end())
     {
-        gLogError << "engine not vaild." << endl;
+        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
         return -1;
     }
 
@@ -529,7 +529,7 @@ int ComputationWorker::GetModelOutputSize(std::string model_name, std::string ou
     et_rw_mu.runlock();
     if (iter == engine_table.end())
     {
-        gLogError << "engine not vaild." << endl;
+        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
         return -1;
     }
 
@@ -575,7 +575,7 @@ void *WrapInput(void *host_memory, uint64_t size)
     check_cuda_success(cudaMemcpy(res, host_memory, size, cudaMemcpyHostToDevice), result);
     if (result != 0)
     {
-        gLogError << "Wrap output failed." << endl;
+        gLogError << __CXX_PREFIX << "Wrap output failed." << endl;
         return nullptr;
     }
     return res;
@@ -595,7 +595,7 @@ void *UnwrapOutput(void *device_memory)
     int result = 0;
     check_cuda_success(cudaMemcpy(h_ptr, device_memory, size, cudaMemcpyDeviceToHost), result);
     if (result != 0)
-        gLogError << "Unwrap output failed." << endl;
+        gLogError << __CXX_PREFIX << "Unwrap output failed." << endl;
     kg_allocator->free(device_memory);
     return h_ptr;
 }
