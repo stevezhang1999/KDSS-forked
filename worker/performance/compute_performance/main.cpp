@@ -99,5 +99,6 @@ int main(int argc, char **argv)
     }
     fout_1.close();
     fout_2.close();
+    fout_3.close();
     return 0;
 }
