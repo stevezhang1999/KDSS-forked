@@ -34,9 +34,9 @@ int main()
     preProcessHostInput(input, test_data, 28 * 28, nvinfer1::DataType::kFLOAT);
     std::vector<std::vector<char>> h_output;
 
-    h_output = computation_worker.Compute("mnist", input);
+    int executed = computation_worker.Compute("mnist", input, h_output);
 
-    if (!h_output.size())
+    if (executed != 0)
     {
         gLogError << __CXX_PREFIX << "Invaild output, exit..." << endl;
         return -1;

@@ -42,11 +42,24 @@ int main()
         return -1;
     }
 
+    int execution = 0;
     for (int i = 1; i <= 30000; i++)
     {
-        _CXX_MEASURE_TIME(h_output = computation_worker.Compute("mnist", input),fout_1);
+        _CXX_MEASURE_TIME(execution = computation_worker.Compute("mnist", input, h_output), fout_1);
         h_output.clear();
-        _CXX_MEASURE_TIME(h_output = computation_worker.ComputeWithStream("mnist", input), fout_2);
+        if (execution != 0)
+        {
+            gLogFatal << "Model execution failed, current memory pool info: " << endl;
+            MemPoolInfo();
+            throw "";
+        }
+        _CXX_MEASURE_TIME(execution = computation_worker.ComputeWithStream("mnist", input, h_output), fout_2);
+        if (execution != 0)
+        {
+            gLogFatal << "Model execution failed, current memory pool info: " << endl;
+            MemPoolInfo();
+            throw "";
+        }
         h_output.clear();
     }
     fout_1.close();
