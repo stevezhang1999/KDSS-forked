@@ -110,7 +110,7 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     }
 
     // 我们保存一下当前引擎序列化后的字符串表现形式
-    IHostMemory *h_memory = mEngine->serialize();
+    auto h_memory = SampleUniquePtr<IHostMemory>(mEngine->serialize());
     std::string serialize_str;
     serialize_str.resize(h_memory->size());
     memcpy((void *)serialize_str.data(), h_memory->data(), h_memory->size());
@@ -156,6 +156,98 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     return current_index;
 }
 
+int TransferWorker::LoadWithDefaultAllocator(std::string model_name, std::string model_file, std::string file_path)
+{
+    // 先查看engine_table是否已有同名引擎
+    et_rw_mu.rlock();
+    auto iter = engine_table.find(model_name);
+    if (iter != engine_table.end())
+    {
+        gLogError << __CXX_PREFIX << "Inserting model " << model_name << " which is already exist on current system." << endl;
+        et_rw_mu.runlock();
+        return -1;
+    }
+    et_rw_mu.runlock();
+    // 从网络构建引擎，并保存在engine_table中
+    std::shared_ptr<nvinfer1::ICudaEngine> mEngine;
+    auto builder = SampleUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger));
+    if (!builder)
+    {
+        return -1;
+    }
+    auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetwork());
+    if (!network)
+    {
+        return -1;
+    }
+
+    auto config = SampleUniquePtr<nvinfer1::IBuilderConfig>(builder->createBuilderConfig());
+    if (!config)
+    {
+        return -1;
+    }
+    auto parser = SampleUniquePtr<nvonnxparser::IParser>(nvonnxparser::createParser(*network, gLogger));
+    if (!parser)
+    {
+        return -1;
+    }
+    auto constructed = constructNetwork(builder, network, config, parser, file_path, model_file);
+    if (!constructed)
+    {
+        return false;
+    }
+    mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(builder->buildEngineWithConfig(*network, *config), samplesCommon::InferDeleter());
+    if (!mEngine)
+    {
+        return false;
+    }
+
+    // 我们保存一下当前引擎序列化后的字符串表现形式
+    auto h_memory = SampleUniquePtr<IHostMemory>(mEngine->serialize());
+    std::string serialize_str;
+    serialize_str.resize(h_memory->size());
+    memcpy((void *)serialize_str.data(), h_memory->data(), h_memory->size());
+
+    // 生成索引
+    mt_rw_mu.lock();
+    max_index++;
+    int current_index = max_index.load();
+    model_table.insert(std::pair<int, std::string>(current_index, model_name));
+    mt_rw_mu.unlock();
+
+    // 插入到engine_table
+    EngineInfo ef;
+    ef.engine = mEngine;
+    ef.engine_serialize = serialize_str;
+    // 保存输入输出信息
+    for (int i = 0; i < network->getNbInputs(); i++)
+    {
+        // 先获得该输入的名字，存入ef
+        ef.InputName.push_back(network->getInput(i)->getName());
+        // 然后获取对应Tensor的大小
+        ef.InputSize.push_back(network->getInput(i)->getDimensions());
+        // 获取类型，存入
+        ef.InputType.push_back(network->getInput(i)->getType());
+        // 获取在network中的索引，存入
+        ef.InputNetworkIndex.push_back(mEngine->getBindingIndex(network->getInput(i)->getName()));
+    }
+
+    for (int i = 0; i < network->getNbOutputs(); i++)
+    {
+        // 先获得该输入的名字，存入ef
+        ef.OutputName.push_back(network->getOutput(i)->getName());
+        // 然后获取对应Tensor的大小
+        ef.OutputSize.push_back(network->getOutput(i)->getDimensions());
+        // 获取类型，存入
+        ef.OutputType.push_back(network->getOutput(i)->getType());
+        // 获取在network中的索引，存入
+        ef.OutputNetworkIndex.push_back(mEngine->getBindingIndex(network->getOutput(i)->getName()));
+    }
+    et_rw_mu.lock();
+    engine_table.insert(std::pair<std::string, EngineInfo>(model_name, ef));
+    et_rw_mu.unlock();
+    return current_index;
+}
 int TransferWorker::LoadFromEngineFile(std::string model_name, std::string model_file, std::string file_path, std::vector<std::string> inTensorVec, std::vector<std::string> outTensorVec)
 {
     // 先查看engine_table是否已有同名引擎
@@ -258,7 +350,7 @@ std::string TransferWorker::GetModelName(int index) const
     return iter->second;
 }
 
-int TransferWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>>&output)
+int TransferWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
 {
     throw "Compute method not supported.";
     return -1;

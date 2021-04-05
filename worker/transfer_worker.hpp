@@ -11,6 +11,13 @@ public:
     TransferWorker(){};
     virtual ~TransferWorker();
     virtual int Load(std::string model_name, std::string model_file, std::string file_path, ModelType type);
+
+    // LoadWithDefaultAllocator 使用默认allocator构建模型
+    // \param model_name 模型名称，该名称需要与目前已被加载的模型均不同，是一个唯一标识模型的名称
+    // \param model_file 模型文件，可以为TensorRT引擎或ONNX文件
+    // \param file_path 模型文件的路径
+    // \returns 该模型在全局的唯一索引，如果导入不成功，将会返回-1，并在logger中输出错误信息
+    int LoadWithDefaultAllocator(std::string model_name, std::string model_file, std::string file_path);
     // LoadFromEngineFile 从本机读取由本机该模型序列化后的结果
     // \param model_name 模型名称，该名称需要与目前已被加载的模型均不同，是一个唯一标识模型的名称
     // \param model_file 模型文件，可以为TensorRT引擎或ONNX文件
