@@ -625,7 +625,7 @@ void *UnwrapOutput(void *device_memory)
     check_cuda_success(cudaMemcpy(h_ptr, device_memory, size, cudaMemcpyDeviceToHost), result);
     if (result != 0)
         gLogError << __CXX_PREFIX << "Unwrap output failed." << endl;
-    kg_allocator->free(device_memory);
+    // kg_allocator->free(device_memory);
     return h_ptr;
 }
 
