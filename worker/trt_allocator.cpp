@@ -4,6 +4,7 @@
 #include "umap/umap.hpp"
 #include "hash/hash.hpp"
 #include "common/logger.h" // On TensorRT/samples
+#include "common/common.h"
 #include <string>
 #include <sstream>
 #include <iostream>
@@ -23,8 +24,9 @@ std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator(new KGAllocator());
 // KGAllocator 执行底层kgmalloc初始化的构造函数
 KGAllocator::KGAllocator()
 {
-    // 大结点2MB一个，小结点4KB一个
-    KGErrCode err = KGInit(FIRST_FIT, 0, static_cast<size_t>(1 << 21), static_cast<size_t>(1 << 12));
+    // 申请最多8GB的显存
+    // 小结点申请512字节一个node，在本机上是以512为单位对齐的
+    KGErrCode err = KGInit(FIRST_FIT, 0, static_cast<size_t>(1 << 21), 512, 8_GiB);
     if (err != KGMALLOC_SUCCESS)
     {
         string err_msg;
@@ -41,10 +43,19 @@ void *KGAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
     {
         return nullptr;
     }
+    uint64_t alignment_size;
     alloc_mu.lock();
-    if (alignment != 0 && (alignment & (alignment - 1)))
+    if (alignment != 0)
     {
-        gLogInfo << "KGAllocator does not enable alignment." << endl;
+        // gLogInfo << "KGAllocator does not enable alignment." << endl;
+        // 实现alignment，不然有可能会导致数据有覆盖的情况
+        alignment_size = alignment;
+        while (alignment_size < size)
+            alignment_size += alignment;
+    }
+    else
+    {
+        alignment_size = size;
     }
     CudaMemNode **node = new (CudaMemNode *);
     if (!node)
@@ -62,7 +73,7 @@ void *KGAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
         alloc_mu.unlock();
         return nullptr;
     }
-    err = KGAllocMem(node, size, hash, -1);
+    err = KGAllocMem(node, alignment_size, hash, -1);
     if (err != KGMALLOC_SUCCESS)
     {
         gLogError << __CXX_PREFIX << "allocate failed, err: " << err << endl;
