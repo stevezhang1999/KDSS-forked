@@ -18,6 +18,28 @@ using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
 void *WrapInput(void *host_memory, uint64_t size);
 void *UnwrapOutput(void *device_memory);
 
+struct KGMemoryDeleter
+{
+    template <typename T>
+    void operator()(T *obj) const
+    {
+        if (obj)
+        {
+            for (int i = 0; i < current_length;i++)
+            {
+                kg_allocator->free(obj[i]);
+            }
+            delete[] obj;
+            obj = nullptr;
+        }
+    }
+    // Current_length of obj
+    size_t current_length = 0;
+};
+
+template <typename T>
+using KGMemoryUniquePtr = std::unique_ptr<T, KGMemoryDeleter>;
+
 std::string ComputationWorker::GetModelName(int index) const
 {
     mt_rw_mu.rlock();
@@ -55,19 +77,20 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
         gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
         return -1;
     }
-    // int input_index = engine->getBindingIndex(iter->second.InputName[0].c_str());
-    // int output_index = engine->getBindingIndex(iter->second.OutputName[0].c_str());
 
     // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
     int input_num = ef.InputName.size();
     int output_num = ef.OutputName.size();
-    void **buffers = (void **)malloc(sizeof(void *) * (input_num + output_num));
+
+    // fix: input没有被free掉，对buffers使用智能指针
+    KGMemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed." << endl;
         return -1;
     }
-    memset(buffers, 0, sizeof(void *) * (input_num + output_num));
+
+    buffers.get_deleter().current_length = input_num + output_num;
 
     // 处理host端input到device端input
     for (int i = 0; i < ef.InputName.size(); i++)
@@ -78,7 +101,12 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
         {
             // This should not happen
             gLogInfo << "Buffers not long enough, reallocating..." << endl;
-            buffers = (void **)realloc(buffers, sizeof(void *) * input_i_index);
+            // buffers = (void **)realloc(buffers, sizeof(void *) * input_i_index);
+            auto temp_buffers = buffers.release();
+            void **new_buffers = new void *[input_i_index + 1];
+            memmove(new_buffers, temp_buffers, sizeof(void *) * (input_num + output_num));
+            buffers.reset(temp_buffers);
+            delete[] temp_buffers;
         }
         uint64_t input_i_size;
         int res = this->GetModelInputSize(model_name, ef.InputName.at(i), &input_i_size);
@@ -88,7 +116,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             gLogError << __CXX_PREFIX << "Can not get input size of : " << ef.InputName.at(i);
             return -1;
         }
-        buffers[input_i_index] = WrapInput(input[i].data(), input_i_size);
+        buffers.get()[input_i_index] = WrapInput(input[i].data(), input_i_size);
     }
 
     // 申请device端output空间
@@ -100,7 +128,10 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
         {
             // This should not happen
             gLogInfo << "Buffers not long enough, reallocating..." << endl;
-            buffers = (void **)realloc(buffers, sizeof(void *) * output_i_index);
+            // buffers = (void **)realloc(buffers, sizeof(void *) * output_i_index);
+            auto temp_buffers = buffers.release();
+            temp_buffers = (void **)realloc(temp_buffers, sizeof(void *) * output_i_index + 1);
+            buffers.reset(temp_buffers);
         }
         uint64_t output_i_size;
         int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
@@ -110,12 +141,12 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return -1;
         }
-        buffers[output_i_index] = kg_allocator->allocate(output_i_size, 0, 0);
+        buffers.get()[output_i_index] = kg_allocator->allocate(output_i_size, 0, 0);
     }
 
     // 执行模型
     bool status;
-    status = context->execute(1, buffers);
+    status = context->execute(1, buffers.get());
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
@@ -144,7 +175,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return -1;
         }
-        h_output[i] = UnwrapOutput(buffers[output_i_index]);
+        h_output[i] = UnwrapOutput(buffers.get()[output_i_index]);
         if (!h_output[i])
         {
             // 释放所有h_output[0,i-1]的内存
@@ -165,7 +196,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
         }
         output.push_back(temp);
     }
-    free(buffers);
+    // free(buffers);
     // 释放h_output
     for (int i = 0; i < ef.OutputName.size(); i++)
     {
