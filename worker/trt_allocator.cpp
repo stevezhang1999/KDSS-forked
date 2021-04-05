@@ -30,7 +30,7 @@ KGAllocator::KGAllocator()
         string err_msg;
         ostringstream oss(err_msg);
         oss << __CXX_PREFIX << "kgmalloc init failed. Error code: " << static_cast<int>(err);
-        gLogError << "kgmalloc init failed. Error code: " << static_cast<int>(err);
+        gLogError << __CXX_PREFIX << "kgmalloc init failed. Error code: " << static_cast<int>(err);
         throw oss.str().c_str();
     }
 }
@@ -49,7 +49,7 @@ void *KGAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
     CudaMemNode **node = new (CudaMemNode *);
     if (!node)
     {
-        gLogError << "node memory allocate failed." << endl;
+        gLogError << __CXX_PREFIX << "node memory allocate failed." << endl;
         alloc_mu.unlock();
         return nullptr;
     }
@@ -58,14 +58,14 @@ void *KGAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
     err = GetHash(&hash);
     if (err != KGMALLOC_SUCCESS)
     {
-        gLogError << "allocate failed, err: " << err << endl;
+        gLogError << __CXX_PREFIX << "allocate failed, err: " << err << endl;
         alloc_mu.unlock();
         return nullptr;
     }
     err = KGAllocMem(node, size, hash, -1);
     if (err != KGMALLOC_SUCCESS)
     {
-        gLogError << "allocate failed, err: " << err << endl;
+        gLogError << __CXX_PREFIX << "allocate failed, err: " << err << endl;
         alloc_mu.unlock();
         return nullptr;
     }
@@ -90,7 +90,7 @@ void KGAllocator::free(void *memory)
     KGErrCode err = KGReleaseMem(node);
     if (err != KGMALLOC_SUCCESS)
     {
-        gLogError << "free failed, err: " << err << endl;
+        gLogError << __CXX_PREFIX << "free failed, err: " << err << endl;
     }
     delete node;
     node_pool.erase(iter);
@@ -102,7 +102,7 @@ KGAllocator::~KGAllocator()
 {
     KGErrCode err = KGDestroy();
     if (err != KGMALLOC_SUCCESS)
-        gLogError << "recycle kgmalloc memory failed, err: " << err << endl;
+        gLogError << __CXX_PREFIX << "recycle kgmalloc memory failed, err: " << err << endl;
     gLogInfo << "Memory pool destroyed." << endl;
     return;
 }
