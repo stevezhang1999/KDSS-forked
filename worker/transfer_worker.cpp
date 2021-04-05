@@ -16,6 +16,7 @@ extern std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator;
 template <typename T>
 using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
 
+std::string getTRTEngine(std::string file_path, std::string model_file);
 TransferWorker::~TransferWorker()
 {
     // 获得所有模型的名称，并开始删除它们
@@ -55,9 +56,26 @@ bool constructNetwork(SampleUniquePtr<nvinfer1::IBuilder> &builder,
 
 int TransferWorker::Load(std::string model_name, std::string model_file, std::string file_path, ModelType type)
 {
+    switch (type)
+    {
+    case TRT_ENGINE:
+    {
+        throw "Call TransferWorker::LoadFromEngineFile() instead of this function.";
+        return -1;
+    }
+    }
+    // 先查看engine_table是否已有同名引擎
+    et_rw_mu.rlock();
+    auto iter = engine_table.find(model_name);
+    if (iter != engine_table.end())
+    {
+        gLogError << __CXX_PREFIX << "Inserting model " << model_name << " which is already exist on current system." << endl;
+        et_rw_mu.runlock();
+        return -1;
+    }
+    et_rw_mu.runlock();
     // 从网络构建引擎，并保存在engine_table中
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine;
-
     auto builder = SampleUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(gLogger));
     if (!builder)
     {
@@ -75,34 +93,20 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     {
         return -1;
     }
-
-    switch (type)
+    auto parser = SampleUniquePtr<nvonnxparser::IParser>(nvonnxparser::createParser(*network, gLogger));
+    if (!parser)
     {
-    case ONNX_FILE:
-    {
-        auto parser = SampleUniquePtr<nvonnxparser::IParser>(nvonnxparser::createParser(*network, gLogger));
-        if (!parser)
-        {
-            return -1;
-        }
-        auto constructed = constructNetwork(builder, network, config, parser, file_path, model_file);
-        if (!constructed)
-        {
-            return false;
-        }
-        mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(builder->buildEngineWithConfig(*network, *config), samplesCommon::InferDeleter());
-        if (!mEngine)
-        {
-            return false;
-        }
-        break;
-    }
-    case TRT_ENGINE:
-        gLogError << "error! TensorRT deserilaize is not avaliable now." << endl;
         return -1;
-        break;
-    default:
-        break;
+    }
+    auto constructed = constructNetwork(builder, network, config, parser, file_path, model_file);
+    if (!constructed)
+    {
+        return false;
+    }
+    mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(builder->buildEngineWithConfig(*network, *config), samplesCommon::InferDeleter());
+    if (!mEngine)
+    {
+        return false;
     }
 
     // 我们保存一下当前引擎序列化后的字符串表现形式
@@ -152,6 +156,70 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     return current_index;
 }
 
+int TransferWorker::LoadFromEngineFile(std::string model_name, std::string model_file, std::string file_path, std::vector<std::string> inTensorVec, std::vector<std::string> outTensorVec)
+{
+    // 先查看engine_table是否已有同名引擎
+    et_rw_mu.rlock();
+    auto iter = engine_table.find(model_name);
+    if (iter != engine_table.end())
+    {
+        gLogError << __CXX_PREFIX << "Inserting model " << model_name << " which is already exist on current system." << endl;
+        et_rw_mu.runlock();
+        return -1;
+    }
+    et_rw_mu.runlock();
+
+    IRuntime *runtime = createInferRuntime(gLogger.getTRTLogger());
+    std::string serialize_str = getTRTEngine(file_path, model_file);
+    auto mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(runtime->deserializeCudaEngine(serialize_str.data(), serialize_str.size()), samplesCommon::InferDeleter());
+    runtime->destroy();
+    // 生成索引
+    mt_rw_mu.lock();
+    max_index++;
+    int current_index = max_index.load();
+    model_table.insert(std::pair<int, std::string>(current_index, model_name));
+    mt_rw_mu.unlock();
+
+    // 插入到engine_table
+    EngineInfo ef;
+    ef.engine = mEngine;
+    ef.engine_serialize = serialize_str;
+    // 保存输入输出信息
+    for (int i = 0; i < mEngine->getNbBindings(); i++)
+    {
+        if (std::find(inTensorVec.begin(), inTensorVec.end(), mEngine->getBindingName(i)) != inTensorVec.end())
+        {
+            // 先获得该输入的名字，存入ef
+            ef.InputName.push_back(mEngine->getBindingName(i));
+            // 然后获取对应Tensor的大小
+            ef.InputSize.push_back(mEngine->getBindingDimensions(i));
+            // 获取类型，存入
+            ef.InputType.push_back(mEngine->getBindingDataType(i));
+            // 获取在network中的索引，存入
+            ef.InputNetworkIndex.push_back(i);
+        }
+        else if (std::find(outTensorVec.begin(), outTensorVec.end(), mEngine->getBindingName(i)) != outTensorVec.end())
+        {
+            // 先获得该输入的名字，存入ef
+            ef.OutputName.push_back(mEngine->getBindingName(i));
+            // 然后获取对应Tensor的大小
+            ef.OutputSize.push_back(mEngine->getBindingDimensions(i));
+            // 获取类型，存入
+            ef.OutputType.push_back(mEngine->getBindingDataType(i));
+            // 获取在network中的索引，存入
+            ef.OutputNetworkIndex.push_back(i);
+        }
+        else
+        {
+            gLogFatal << __CXX_PREFIX << "Input or output vector not vaild!" << endl;
+            throw "";
+        }
+    }
+    et_rw_mu.lock();
+    engine_table.insert(std::pair<std::string, EngineInfo>(model_name, ef));
+    et_rw_mu.unlock();
+    return current_index;
+}
 int TransferWorker::Unload(std::string model_name)
 {
     // 从engine_table删除该模型的引擎
@@ -228,7 +296,7 @@ int preProcessHostInput(std::vector<std::vector<char>> &input_vec, void *input, 
     return 0;
 }
 
-int preProcessHostOutput(const std::vector<std::vector<char>>& output_vec, int index, void **output, uint64_t num, nvinfer1::DataType type)
+int preProcessHostOutput(const std::vector<std::vector<char>> &output_vec, int index, void **output, uint64_t num, nvinfer1::DataType type)
 {
     if (index >= output_vec.size())
         return -1;
@@ -255,4 +323,19 @@ int preProcessHostOutput(const std::vector<std::vector<char>>& output_vec, int i
     }
     memcpy(*output, data.data(), num * factor);
     return 0;
+}
+
+std::string getTRTEngine(std::string file_path, std::string model_file)
+{
+    std::string engine_serializer;
+    std::ifstream fin(file_path + model_file);
+    if (!fin)
+        return "";
+    while (fin.peek() != EOF)
+    {
+        std::stringstream buffer;
+        buffer << fin.rdbuf();
+        engine_serializer.append(buffer.str());
+    }
+    return engine_serializer;
 }
