@@ -8,7 +8,7 @@
 #include <string>
 using namespace std;
 
-int main()
+int main(int argc, char **argv)
 {
     TransferWorker transfer_worker;
     ComputationWorker computation_worker;
@@ -23,7 +23,15 @@ int main()
         test_data[i] = 1.0 - float(fileData[i] / 255.0);
     }
     int loaded;
-    loaded = transfer_worker.Load((std::string("mnist")).c_str(), "mnist.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/mnist/", ONNX_FILE);
+
+    loaded = transfer_worker.Load("mnist", "mnist.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/mnist/", ONNX_FILE);
+    if (loaded == -1)
+    {
+        gLogFatal << "Loading mnist model into memory failed." << endl;
+        return loaded;
+    }
+
+    loaded = transfer_worker.LoadWithDefaultAllocator("mnist_default", "mnist.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/mnist/");
     if (loaded == -1)
     {
         gLogFatal << "Loading mnist model into memory failed." << endl;
@@ -36,14 +44,31 @@ int main()
 
     std::ofstream fout_1("compute_time.txt");
     std::ofstream fout_2("compute_with_stream_time.txt");
-    if (!fout_1.is_open() || !fout_2.is_open())
+    std::ofstream fout_3("compute_default_time.txt");
+    if (!fout_1.is_open() || !fout_2.is_open() || !fout_3.is_open())
     {
         gLogError << __CXX_PREFIX << "error." << endl;
         return -1;
     }
 
     int execution = 0;
-    for (int i = 1; i <= 30000; i++)
+    int execution_time = 0;
+    if (argc < 2)
+    {
+        gLogInfo << "Not found execution param, setting 2000 times." << endl;
+        execution_time = 2000;
+    }
+    else
+    {
+        execution_time = std::atoi(argv[1]);
+        if (execution_time == 0)
+        {
+            gLogError << "Execution times param error, usage: [program] <execution-time>" << endl;
+            gLogInfo << "setting 2000 times." << endl;
+            execution_time = 2000;
+        }
+    }
+    for (int i = 1; i <= execution_time; i++)
     {
         _CXX_MEASURE_TIME(execution = computation_worker.Compute("mnist", input, h_output), fout_1);
         h_output.clear();
@@ -53,14 +78,24 @@ int main()
             MemPoolInfo();
             throw "";
         }
-        _CXX_MEASURE_TIME(execution = computation_worker.ComputeWithStream("mnist", input, h_output), fout_2);
+
+        _CXX_MEASURE_TIME(execution = computation_worker.Compute("mnist_default", input, h_output), fout_3);
+        h_output.clear();
         if (execution != 0)
         {
             gLogFatal << "Model execution failed, current memory pool info: " << endl;
             MemPoolInfo();
             throw "";
         }
+
+        _CXX_MEASURE_TIME(execution = computation_worker.ComputeWithStream("mnist", input, h_output), fout_2);
         h_output.clear();
+        if (execution != 0)
+        {
+            gLogFatal << "Model execution failed, current memory pool info: " << endl;
+            MemPoolInfo();
+            throw "";
+        }
     }
     fout_1.close();
     fout_2.close();
