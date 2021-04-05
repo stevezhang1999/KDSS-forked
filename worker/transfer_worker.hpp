@@ -25,8 +25,7 @@ public:
     // Compute 开始根据模型执行计算
     // \param model_name 需要调用的模型的名称
     // \param input 载有数据载荷的vector
-    virtual std::vector<std::vector<char>> Compute(std::string model_name, std::vector<std::vector<char>> &input);
-
+    virtual int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output);
 };
 
 // preProcessHostInput 对已经写好数据的input转移到vector中

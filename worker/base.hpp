@@ -25,7 +25,7 @@ typedef struct EngineInfo
     std::vector<nvinfer1::Dims> OutputSize;
     std::vector<nvinfer1::DataType> InputType;
     std::vector<nvinfer1::DataType> OutputType;
-    std::vector<uint> InputNetworkIndex; // 在Network中该input的index
+    std::vector<uint> InputNetworkIndex;  // 在Network中该input的index
     std::vector<uint> OutputNetworkIndex; // 在Network中该output的index
 } EngineInfo;
 
@@ -70,7 +70,8 @@ public:
     // Compute 开始根据模型执行计算
     // \param model_name 需要调用的模型的名称
     // \param input 载有数据载荷的vector
-    virtual std::vector<std::vector<char>> Compute(std::string model_name, std::vector<std::vector<char>> &input) = 0;
+    // \param output 将会被写入输出数据的vector
+    virtual int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output) = 0;
 };
 
 // end of base.hpp

@@ -28,9 +28,8 @@ std::string ComputationWorker::GetModelName(int index) const
     return iter->second;
 }
 
-std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input)
+int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
 {
-    std::vector<std::vector<char>> result;
     // 从table中取得已注册的引擎
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -38,14 +37,14 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     if (iter == engine_table.end())
     {
         gLogError << __CXX_PREFIX << "engine not vaild." << endl;
-        return result;
+        return -1;
     }
     EngineInfo ef = iter->second;
     nvinfer1::ICudaEngine *engine = ef.engine.get();
     if (!engine)
     {
         gLogError << __CXX_PREFIX << "engine not vaild." << endl;
-        return result;
+        return -1;
     }
 
     SampleUniquePtr<nvinfer1::IExecutionContext> context;
@@ -54,7 +53,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     if (!context)
     {
         gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
-        return result;
+        return -1;
     }
     // int input_index = engine->getBindingIndex(iter->second.InputName[0].c_str());
     // int output_index = engine->getBindingIndex(iter->second.OutputName[0].c_str());
@@ -66,7 +65,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed." << endl;
-        return result;
+        return -1;
     }
     memset(buffers, 0, sizeof(void *) * (input_num + output_num));
 
@@ -87,7 +86,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
         {
             // This should not happen
             gLogError << __CXX_PREFIX << "Can not get input size of : " << ef.InputName.at(i);
-            return result;
+            return -1;
         }
         buffers[input_i_index] = WrapInput(input[i].data(), input_i_size);
     }
@@ -109,7 +108,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
         {
             // This should not happen
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
-            return result;
+            return -1;
         }
         buffers[output_i_index] = kg_allocator->allocate(output_i_size, 0, 0);
     }
@@ -120,7 +119,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
-        return result;
+        return -1;
     }
 
     // 对output逐个unwrap
@@ -128,7 +127,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
     if (!h_output)
     {
         gLogError << __CXX_PREFIX << "Output allocation failed." << endl;
-        return result;
+        return -1;
     }
 
     // 处理device端output到host端output
@@ -143,7 +142,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
         {
             // This should not happen
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
-            return result;
+            return -1;
         }
         h_output[i] = UnwrapOutput(buffers[output_i_index]);
         if (!h_output[i])
@@ -155,7 +154,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
             }
             free(h_output);
             h_output = nullptr;
-            result.clear();
+            output.clear();
             break;
         }
         // 对h_output进行逐字节写入到result
@@ -164,7 +163,7 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
         {
             temp.push_back(*((char *)h_output[i] + j));
         }
-        result.push_back(temp);
+        output.push_back(temp);
     }
     free(buffers);
     // 释放h_output
@@ -173,14 +172,13 @@ std::vector<std::vector<char>> ComputationWorker::Compute(std::string model_name
         free(h_output[i]);
     }
     free(h_output);
-    return result;
+    return 0;
     // void *h_output = UnwrapOutput(d_output);
     // return h_output;
 }
 
-std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input)
+int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
 {
-    std::vector<std::vector<char>> result;
     // 从table中取得已注册的引擎
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -188,14 +186,14 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     if (iter == engine_table.end())
     {
         gLogError << __CXX_PREFIX << "engine not vaild." << endl;
-        return result;
+        return -1;
     }
     EngineInfo ef = iter->second;
     nvinfer1::ICudaEngine *engine = ef.engine.get();
     if (!engine)
     {
         gLogError << __CXX_PREFIX << "engine not vaild." << endl;
-        return result;
+        return -1;
     }
 
     SampleUniquePtr<nvinfer1::IExecutionContext> context;
@@ -204,7 +202,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     if (!context)
     {
         gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
-        return result;
+        return -1;
     }
     // int input_index = engine->getBindingIndex(iter->second.InputName[0].c_str());
     // int output_index = engine->getBindingIndex(iter->second.OutputName[0].c_str());
@@ -216,7 +214,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed." << endl;
-        return result;
+        return -1;
     }
     memset(buffers, 0, sizeof(void *) * (input_num + output_num));
 
@@ -227,7 +225,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     if (res != 0)
     {
         gLogError << __CXX_PREFIX << "Can not create cuda stream." << endl;
-        return result;
+        return -1;
     }
     // 处理host端input到device端input
     for (int i = 0; i < ef.InputName.size(); i++)
@@ -246,20 +244,20 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
         {
             // This should not happen
             gLogError << __CXX_PREFIX << "Can not get input size of : " << ef.InputName.at(i);
-            return result;
+            return -1;
         }
         // buffers[input_i_index] = WrapInput(input[i].data(), input_i_size);
         check_cuda_success(cudaMalloc(&buffers[input_i_index], input_i_size), res);
         if (res != 0)
         {
             gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return result;
+            return -1;
         }
         check_cuda_success(cudaMemcpyAsync(buffers[input_i_index], input[i].data(), input_i_size, cudaMemcpyHostToDevice, stream), res);
         if (res != 0)
         {
             gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return result;
+            return -1;
         }
     }
 
@@ -280,14 +278,14 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
         {
             // This should not happen
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
-            return result;
+            return -1;
         }
         // buffers[output_i_index] = kg_allocator->allocate(output_i_size, 0, 0);
         check_cuda_success(cudaMalloc(&(buffers[output_i_index]), output_i_size), res);
         if (res != 0)
         {
             gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return result;
+            return -1;
         }
     }
 
@@ -297,7 +295,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
-        return result;
+        return -1;
     }
 
     // 对output逐个unwrap
@@ -305,7 +303,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     if (!h_output)
     {
         gLogError << __CXX_PREFIX << "Output allocation failed." << endl;
-        return result;
+        return -1;
     }
 
     // 处理device端output到host端output
@@ -320,20 +318,20 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
         {
             // This should not happen
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
-            return result;
+            return -1;
         }
         // h_output[i] = UnwrapOutput(buffers[output_i_index]);
         h_output[i] = malloc(output_i_size);
         if (!h_output[i])
         {
             gLogError << __CXX_PREFIX << "Can not allocate memory for h_output[i]" << endl;
-            return result;
+            return -1;
         }
         check_cuda_success(cudaMemcpyAsync(h_output[i], buffers[output_i_index], output_i_size, cudaMemcpyDeviceToHost, stream), res);
         if (res != 0)
         {
             gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return result;
+            return -1;
         }
     }
 
@@ -341,7 +339,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     if (res != 0)
     {
         gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-        return result;
+        return -1;
     }
 
     for (int i = 0; i < ef.OutputName.size(); i++)
@@ -355,7 +353,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
             }
             free(h_output);
             h_output = nullptr;
-            result.clear();
+            output.clear();
             break;
         }
         // 对h_output进行逐字节写入到result
@@ -364,7 +362,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
         {
             temp.push_back(*((char *)h_output[i] + j));
         }
-        result.push_back(temp);
+        output.push_back(temp);
     }
     // 释放CUDA memory
     for (int i = 0; i < (input_num + output_num); i++)
@@ -373,7 +371,7 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
         if (res != 0)
         {
             gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return result;
+            return -1;
         }
     }
     free(buffers);
@@ -387,9 +385,9 @@ std::vector<std::vector<char>> ComputationWorker::ComputeWithStream(std::string 
     if (res != 0)
     {
         gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-        return result;
+        return -1;
     }
-    return result;
+    return 0;
     // void *h_output = UnwrapOutput(d_output);
     // return h_output;
 }

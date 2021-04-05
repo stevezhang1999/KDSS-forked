@@ -258,10 +258,10 @@ std::string TransferWorker::GetModelName(int index) const
     return iter->second;
 }
 
-std::vector<std::vector<char>> TransferWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input)
+int TransferWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>>&output)
 {
     throw "Compute method not supported.";
-    return std::vector<std::vector<char>>();
+    return -1;
 }
 
 int preProcessHostInput(std::vector<std::vector<char>> &input_vec, void *input, uint64_t num, nvinfer1::DataType type)
