@@ -109,7 +109,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             delete[] temp_buffers;
         }
         uint64_t input_i_size;
-        int res = this->GetModelInputSize(model_name, ef.InputName.at(i), &input_i_size);
+        int res = this->GetModelInputDim(model_name, ef.InputName.at(i), &input_i_size);
         if (res)
         {
             // This should not happen
@@ -134,7 +134,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             buffers.reset(temp_buffers);
         }
         uint64_t output_i_size;
-        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputDim(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
@@ -168,7 +168,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
         int output_i_index = engine->getBindingIndex(ef.OutputName.at(i).c_str());
 
         uint64_t output_i_size;
-        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputDim(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
@@ -270,7 +270,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             buffers = (void **)realloc(buffers, sizeof(void *) * input_i_index);
         }
         uint64_t input_i_size;
-        int res = this->GetModelInputSize(model_name, ef.InputName.at(i), &input_i_size);
+        int res = this->GetModelInputDim(model_name, ef.InputName.at(i), &input_i_size);
         if (res)
         {
             // This should not happen
@@ -304,7 +304,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             buffers = (void **)realloc(buffers, sizeof(void *) * output_i_index);
         }
         uint64_t output_i_size;
-        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputDim(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
@@ -344,7 +344,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         // 找到它们在全局中的索引
         int output_i_index = engine->getBindingIndex(ef.OutputName.at(i).c_str());
 
-        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputDim(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
@@ -423,8 +423,8 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
     // return h_output;
 }
 
-// GetModelInputSize 获取指定模型的输入总大小
-int ComputationWorker::GetModelInputSize(std::string model_name, int index, uint64_t *result) const
+// GetModelInputDim 获取指定模型的输入总大小
+int ComputationWorker::GetModelInputDim(std::string model_name, int index, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -437,11 +437,11 @@ int ComputationWorker::GetModelInputSize(std::string model_name, int index, uint
 
     EngineInfo ef = iter->second;
     *result = 1;
-    for (int i = 0; i < ef.InputSize.at(index).nbDims; i++)
+    for (int i = 0; i < ef.InputDim.at(index).nbDims; i++)
     {
-        if (ef.InputSize.at(index).d[i] == 0)
+        if (ef.InputDim.at(index).d[i] == 0)
             continue;
-        *result *= ef.InputSize.at(index).d[i];
+        *result *= ef.InputDim.at(index).d[i];
     }
     // 还需要乘系数因子
     int factor = 1;
@@ -463,7 +463,7 @@ int ComputationWorker::GetModelInputSize(std::string model_name, int index, uint
     return 0;
 }
 
-int ComputationWorker::GetModelInputSize(std::string model_name, std::string input_name, uint64_t *result) const
+int ComputationWorker::GetModelInputDim(std::string model_name, std::string input_name, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -484,11 +484,11 @@ int ComputationWorker::GetModelInputSize(std::string model_name, std::string inp
     int index = std::distance(ef.InputName.begin(), input_iter);
 
     *result = 1;
-    for (int i = 0; i < ef.InputSize.at(index).nbDims; i++)
+    for (int i = 0; i < ef.InputDim.at(index).nbDims; i++)
     {
-        if (ef.InputSize.at(index).d[i] == 0)
+        if (ef.InputDim.at(index).d[i] == 0)
             continue;
-        *result *= ef.InputSize.at(index).d[i];
+        *result *= ef.InputDim.at(index).d[i];
     }
     // 还需要乘系数因子
     int factor = 1;
@@ -510,8 +510,8 @@ int ComputationWorker::GetModelInputSize(std::string model_name, std::string inp
     return 0;
 }
 
-// GetModelOutputSize 获取指定模型的输出总大小
-int ComputationWorker::GetModelOutputSize(std::string model_name, int index, uint64_t *result) const
+// GetModelOutputDim 获取指定模型的输出总大小
+int ComputationWorker::GetModelOutputDim(std::string model_name, int index, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -524,11 +524,11 @@ int ComputationWorker::GetModelOutputSize(std::string model_name, int index, uin
 
     EngineInfo ef = iter->second;
     *result = 1;
-    for (int i = 0; i < ef.OutputSize.at(index).nbDims; i++)
+    for (int i = 0; i < ef.OutputDim.at(index).nbDims; i++)
     {
-        if (ef.OutputSize.at(index).d[i] == 0)
+        if (ef.OutputDim.at(index).d[i] == 0)
             continue;
-        *result *= ef.OutputSize.at(index).d[i];
+        *result *= ef.OutputDim.at(index).d[i];
     }
     // 还需要乘系数因子
     int factor = 1;
@@ -550,8 +550,8 @@ int ComputationWorker::GetModelOutputSize(std::string model_name, int index, uin
     return 0;
 }
 
-// GetModelOutputSize 获取指定模型的输出总大小
-int ComputationWorker::GetModelOutputSize(std::string model_name, std::string output_name, uint64_t *result) const
+// GetModelOutputDim 获取指定模型的输出总大小
+int ComputationWorker::GetModelOutputDim(std::string model_name, std::string output_name, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -572,11 +572,11 @@ int ComputationWorker::GetModelOutputSize(std::string model_name, std::string ou
     int index = std::distance(ef.OutputName.begin(), output_iter);
 
     *result = 1;
-    for (int i = 0; i < ef.OutputSize.at(index).nbDims; i++)
+    for (int i = 0; i < ef.OutputDim.at(index).nbDims; i++)
     {
-        if (ef.OutputSize.at(index).d[i] == 0)
+        if (ef.OutputDim.at(index).d[i] == 0)
             continue;
-        *result *= ef.OutputSize.at(index).d[i];
+        *result *= ef.OutputDim.at(index).d[i];
     }
     // 还需要乘系数因子
     int factor = 1;
