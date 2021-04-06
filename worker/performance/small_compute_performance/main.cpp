@@ -24,7 +24,7 @@ int main(int argc, char **argv)
     }
     int loaded;
 
-    loaded = transfer_worker.Load("mnist", "mnist.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/mnist/", ONNX_FILE);
+    loaded = transfer_worker.Load("resnet-50", "ResNet50.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", ONNX_FILE);
     if (loaded == -1)
     {
         gLogFatal << "Loading mnist model into memory failed." << endl;
@@ -45,7 +45,7 @@ int main(int argc, char **argv)
     std::ofstream fout_1("compute_time.txt");
     std::ofstream fout_2("compute_with_stream_time.txt");
     std::ofstream fout_3("compute_default_time.txt");
-    if (!fout_1.is_open() || !fout_2.is_open() || !fout_3.is_open())
+    if (!fout_1.is_open())
     {
         gLogError << __CXX_PREFIX << "error." << endl;
         return -1;
