@@ -54,27 +54,27 @@ int main()
     }
 
     {
-        uint64_t outputSize = 0;
-        int executed = computation_worker.GetModelOutputSize("mnist", 0, &outputSize);
+        uint64_t OutputDim = 0;
+        int executed = computation_worker.GetModelOutputDim("mnist", 0, &OutputDim);
         if (executed)
         {
             gLogError << __CXX_PREFIX << "Cannot get output size of output[0]" << endl;
             return -1;
         }
-        outputSize /= sizeof(float);
+        OutputDim /= sizeof(float);
         float val{0.0f};
         int idx{0};
 
         // Calculate Softmax
         float sum{0.0f};
-        for (int i = 0; i < outputSize; i++)
+        for (int i = 0; i < OutputDim; i++)
         {
             output[i] = exp(output[i]);
             sum += output[i];
         }
 
         gLogInfo << "Output:" << std::endl;
-        for (int i = 0; i < outputSize; i++)
+        for (int i = 0; i < OutputDim; i++)
         {
             output[i] /= sum;
             val = std::max(val, output[i]);
