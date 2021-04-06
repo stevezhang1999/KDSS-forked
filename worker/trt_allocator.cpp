@@ -26,7 +26,7 @@ KGAllocator::KGAllocator()
 {
     // 申请最多8GB的显存
     // 小结点申请512字节一个node，在本机上是以512为单位对齐的
-    KGErrCode err = KGInit(FIRST_FIT, 0, static_cast<size_t>(1 << 21), 512, 8_GiB);
+    KGErrCode err = KGInit(FIRST_FIT, 0, 8_MiB, 512, 8_GiB);
     if (err != KGMALLOC_SUCCESS)
     {
         string err_msg;
