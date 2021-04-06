@@ -21,8 +21,8 @@ typedef struct EngineInfo
     std::string engine_serialize;
     std::vector<std::string> InputName;  //可能有多个输入
     std::vector<std::string> OutputName; //可能有多个输出
-    std::vector<nvinfer1::Dims> InputSize;
-    std::vector<nvinfer1::Dims> OutputSize;
+    std::vector<nvinfer1::Dims> InputDim;
+    std::vector<nvinfer1::Dims> OutputDim;
     std::vector<nvinfer1::DataType> InputType;
     std::vector<nvinfer1::DataType> OutputType;
     std::vector<uint> InputNetworkIndex;  // 在Network中该input的index
