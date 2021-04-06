@@ -49,7 +49,7 @@ bool constructNetwork(SampleUniquePtr<nvinfer1::IBuilder> &builder,
     }
 
     builder->setMaxBatchSize(1);
-    config->setMaxWorkspaceSize(16_MiB);
+    config->setMaxWorkspaceSize(128_MiB);
 
     return true;
 }
@@ -101,12 +101,12 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
     auto constructed = constructNetwork(builder, network, config, parser, file_path, model_file);
     if (!constructed)
     {
-        return false;
+        return -1;
     }
     mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(builder->buildEngineWithConfig(*network, *config), samplesCommon::InferDeleter());
     if (!mEngine)
     {
-        return false;
+        return -1;
     }
 
     // 我们保存一下当前引擎序列化后的字符串表现形式
@@ -132,7 +132,7 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
         // 先获得该输入的名字，存入ef
         ef.InputName.push_back(network->getInput(i)->getName());
         // 然后获取对应Tensor的大小
-        ef.InputSize.push_back(network->getInput(i)->getDimensions());
+        ef.InputDim.push_back(network->getInput(i)->getDimensions());
         // 获取类型，存入
         ef.InputType.push_back(network->getInput(i)->getType());
         // 获取在network中的索引，存入
@@ -144,7 +144,7 @@ int TransferWorker::Load(std::string model_name, std::string model_file, std::st
         // 先获得该输入的名字，存入ef
         ef.OutputName.push_back(network->getOutput(i)->getName());
         // 然后获取对应Tensor的大小
-        ef.OutputSize.push_back(network->getOutput(i)->getDimensions());
+        ef.OutputDim.push_back(network->getOutput(i)->getDimensions());
         // 获取类型，存入
         ef.OutputType.push_back(network->getOutput(i)->getType());
         // 获取在network中的索引，存入
@@ -225,7 +225,7 @@ int TransferWorker::LoadWithDefaultAllocator(std::string model_name, std::string
         // 先获得该输入的名字，存入ef
         ef.InputName.push_back(network->getInput(i)->getName());
         // 然后获取对应Tensor的大小
-        ef.InputSize.push_back(network->getInput(i)->getDimensions());
+        ef.InputDim.push_back(network->getInput(i)->getDimensions());
         // 获取类型，存入
         ef.InputType.push_back(network->getInput(i)->getType());
         // 获取在network中的索引，存入
@@ -237,7 +237,7 @@ int TransferWorker::LoadWithDefaultAllocator(std::string model_name, std::string
         // 先获得该输入的名字，存入ef
         ef.OutputName.push_back(network->getOutput(i)->getName());
         // 然后获取对应Tensor的大小
-        ef.OutputSize.push_back(network->getOutput(i)->getDimensions());
+        ef.OutputDim.push_back(network->getOutput(i)->getDimensions());
         // 获取类型，存入
         ef.OutputType.push_back(network->getOutput(i)->getType());
         // 获取在network中的索引，存入
@@ -284,7 +284,7 @@ int TransferWorker::LoadFromEngineFile(std::string model_name, std::string model
             // 先获得该输入的名字，存入ef
             ef.InputName.push_back(mEngine->getBindingName(i));
             // 然后获取对应Tensor的大小
-            ef.InputSize.push_back(mEngine->getBindingDimensions(i));
+            ef.InputDim.push_back(mEngine->getBindingDimensions(i));
             // 获取类型，存入
             ef.InputType.push_back(mEngine->getBindingDataType(i));
             // 获取在network中的索引，存入
@@ -295,7 +295,7 @@ int TransferWorker::LoadFromEngineFile(std::string model_name, std::string model
             // 先获得该输入的名字，存入ef
             ef.OutputName.push_back(mEngine->getBindingName(i));
             // 然后获取对应Tensor的大小
-            ef.OutputSize.push_back(mEngine->getBindingDimensions(i));
+            ef.OutputDim.push_back(mEngine->getBindingDimensions(i));
             // 获取类型，存入
             ef.OutputType.push_back(mEngine->getBindingDataType(i));
             // 获取在network中的索引，存入
@@ -338,6 +338,34 @@ int TransferWorker::Unload(std::string model_name)
     }
     mt_rw_mu.unlock();
     return index;
+}
+
+int TransferWorker::SaveModel(std::string model_name, std::string model_path, std::string file_name)
+{
+    et_rw_mu.rlock();
+    auto iter = engine_table.find(model_name);
+    et_rw_mu.runlock();
+    if (iter == engine_table.end())
+        return -1;
+    EngineInfo ef = iter->second;
+    std::string serializer = ef.engine_serialize;
+    if (serializer.length() == 0)
+    {
+        // 说明模型没有被序列化，执行序列化
+        auto h_memory = SampleUniquePtr<IHostMemory>(ef.engine->serialize());
+        serializer.resize(h_memory->size());
+        memcpy((void *)serializer.data(), h_memory->data(), h_memory->size());
+    }
+    if (file_name.length() == 0)
+        file_name = model_path + model_name + ".tengine";
+    else
+        file_name = model_path + file_name;
+    std::ofstream fout(file_name);
+    if (!fout.is_open())
+        return -1;
+    fout.write(serializer.data(), serializer.size());
+    fout.close();
+    return 0;
 }
 
 std::string TransferWorker::GetModelName(int index) const
