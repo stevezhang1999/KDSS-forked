@@ -42,8 +42,8 @@ ifeq ($(ARCH) , $(LINUX))
 	TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
 	LIBS := -lrt -ldl -lpthread
 else
-	CUDA_LIBS := $(CUDA_LIB_PATH)/cudnn64_7.dll $(CUDA_LIB_PATH)/cublas64_100.dll $(CUDA_LIB_PATH)/cudart64_100.dll $(CUDA_LIB_PATH)/curand64_100.dll
-	TRT_LIBS := $(TRT_LIB_DIR)/nvinfer.dll $(TRT_LIB_DIR)/nvparsers.dll $(TRT_LIB_DIR)/nvinfer_plugin.dll $(TRT_LIB_DIR)/nvonnxparser.dll
+	CUDA_LIBS := cudnn64_7.dll cublas64_100.dll cudart64_100.dll curand64_100.dll
+	TRT_LIBS := nvinfer.dll nvparsers.dll nvinfer_plugin.dll nvonnxparser.dll
 	LIBS := libgcc_s_seh-1.dll libwinpthread-1.dll
 endif
 
