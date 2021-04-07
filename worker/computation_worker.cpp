@@ -53,13 +53,13 @@ ComputationWorker::ComputationWorker()
     int device;
     int result;
     check_cuda_success(cudaGetDevice(&device), result);
-    if (!result)
+    if (result)
     {
         cerr << __CXX_PREFIX << "CUDA error." << endl;
         throw "";
     }
     check_cuda_success(cudaGetDeviceProperties(&prop, device), result);
-    if (!result)
+    if (result)
     {
         cerr << __CXX_PREFIX << "CUDA error." << endl;
         throw "";
