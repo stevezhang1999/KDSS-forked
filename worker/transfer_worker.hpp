@@ -1,14 +1,20 @@
 #pragma once
 
 #include "base.hpp"
+#include "trt_allocator.hpp"
 #include <exception>
 #include <unordered_map>
 #include <mutex>
 
+extern std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator;
+
 class TransferWorker final : public IWorker
 {
 public:
-    TransferWorker(){};
+    TransferWorker()
+    {
+        kg_allocator.reset(new KGAllocator());
+    };
     virtual ~TransferWorker();
 
     virtual int Load(std::string model_name, std::string model_file, std::string file_path, ModelType type);
@@ -19,7 +25,7 @@ public:
     // \param file_path 模型文件的路径
     // \returns 该模型在全局的唯一索引，如果导入不成功，将会返回-1，并在logger中输出错误信息
     int LoadWithDefaultAllocator(std::string model_name, std::string model_file, std::string file_path);
-    
+
     // LoadFromEngineFile 从本机读取由本机该模型序列化后的结果
     // \param model_name 模型名称，该名称需要与目前已被加载的模型均不同，是一个唯一标识模型的名称
     // \param model_file 模型文件，可以为TensorRT引擎或ONNX文件
@@ -28,7 +34,7 @@ public:
     // \param outTensorVec 该引擎对应的模型的输出名称集合
     // \returns 该模型在全局的唯一索引，如果导入不成功，将会返回-1，并在logger中输出错误信息
     int LoadFromEngineFile(std::string model_name, std::string model_file, std::string file_path, std::vector<std::string> inTensorVec, std::vector<std::string> outTensorVec);
-    
+
     // virtual int Load(std::string model_name, std::string model_file, std::string file_path, ModelType type, void *test_input);
     virtual int Unload(std::string model_name);
 
@@ -37,8 +43,8 @@ public:
     // \param model_path 需要保存到的路径
     // \param file_name 需要给模型文件设定的名字（可选，如果不填，则为model_name+".tengine"
     // \returns 执行是否成功，0为成功，非0值为失败
-    int SaveModel(std::string model_name, std::string model_path,std::string file_name = "");
-    
+    int SaveModel(std::string model_name, std::string model_path, std::string file_name = "");
+
     virtual std::string GetModelName(int index) const;
     // Compute 开始根据模型执行计算
     // \param model_name 需要调用的模型的名称

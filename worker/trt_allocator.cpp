@@ -18,7 +18,7 @@ using std::ostringstream;
 using std::string;
 
 // kg_allocator - 全局唯一allocator
-std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator(new KGAllocator());
+std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator = nullptr;
 // std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator = nullptr;
 
 // KGAllocator 执行底层kgmalloc初始化的构造函数
