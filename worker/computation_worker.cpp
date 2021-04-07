@@ -18,6 +18,9 @@ using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
 void *WrapInput(void *host_memory, uint64_t size, IGpuAllocator *allocator = kg_allocator.get());
 void *UnwrapOutput(void *device_memory, size_t size, IGpuAllocator *allocator = kg_allocator.get());
 
+void *WrapInputAsync(void *host_memory, uint64_t size, IGpuAllocator *allocator, cudaStream_t stream);
+void *UnwrapOutputAsync(void *device_memory, size_t size, IGpuAllocator *allocator, cudaStream_t stream);
+
 struct MemoryDeleter
 {
     template <typename T>
@@ -54,6 +57,12 @@ std::string ComputationWorker::GetModelName(int index) const
     return iter->second;
 }
 
+int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
+{
+    // 使用默认分配器kg_allocator
+    return this->Compute(model_name, input, output, kg_allocator.get());
+}
+
 int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator)
 {
     // 从table中取得已注册的引擎
@@ -81,6 +90,11 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
         gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
         return -1;
     }
+
+    // 为Engine分配执行显存
+    uint64_t execute_memory_size = engine->getDeviceMemorySize();
+    void *execution_memory = allocator->allocate(execute_memory_size, alignment, 0);
+    context->setDeviceMemory(execution_memory);
 
     // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
     int input_num = ef.InputName.size();
@@ -152,6 +166,10 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
     // 执行模型
     bool status;
     status = context->execute(1, buffers.get());
+
+    // 释放执行显存
+    allocator->free(execution_memory);
+
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
@@ -187,7 +205,6 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             for (int j = 0; j < i; j++)
             {
                 free(h_output[j]);
-
             }
             free(h_output);
             h_output = nullptr;
@@ -214,13 +231,12 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
     // return h_output;
 }
 
-int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
+int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
 {
-    // 使用默认分配器kg_allocator
-    return this->Compute(model_name, input, output, kg_allocator.get());
+    return this->ComputeWithStream(model_name, input, output, kg_allocator.get());
 }
 
-int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
+int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, IGpuAllocator *allocator)
 {
     // 从table中取得已注册的引擎
     et_rw_mu.rlock();
@@ -247,8 +263,11 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
         return -1;
     }
-    // int input_index = engine->getBindingIndex(iter->second.InputName[0].c_str());
-    // int output_index = engine->getBindingIndex(iter->second.OutputName[0].c_str());
+
+    // 为Engine分配执行显存
+    uint64_t execute_memory_size = engine->getDeviceMemorySize();
+    void *execution_memory = allocator->allocate(execute_memory_size, alignment, 0);
+    context->setDeviceMemory(execution_memory);
 
     // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
     int input_num = ef.InputName.size();
@@ -270,6 +289,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         gLogError << __CXX_PREFIX << "Can not create cuda stream." << endl;
         return -1;
     }
+
     // 处理host端input到device端input
     for (int i = 0; i < ef.InputName.size(); i++)
     {
@@ -289,19 +309,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             gLogError << __CXX_PREFIX << "Can not get input size of : " << ef.InputName.at(i);
             return -1;
         }
-        // buffers[input_i_index] = WrapInput(input[i].data(), input_i_size);
-        check_cuda_success(cudaMalloc(&buffers[input_i_index], input_i_size), res);
-        if (res != 0)
-        {
-            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return -1;
-        }
-        check_cuda_success(cudaMemcpyAsync(buffers[input_i_index], input[i].data(), input_i_size, cudaMemcpyHostToDevice, stream), res);
-        if (res != 0)
-        {
-            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return -1;
-        }
+        buffers[input_i_index] = WrapInputAsync(input[i].data(), input_i_size, allocator, stream);
     }
 
     // 申请device端output空间
@@ -323,16 +331,10 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return -1;
         }
-        // buffers[output_i_index] = kg_allocator->allocate(output_i_size, 0, 0);
-        check_cuda_success(cudaMalloc(&(buffers[output_i_index]), output_i_size), res);
-        if (res != 0)
-        {
-            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return -1;
-        }
+        buffers[output_i_index] = allocator->allocate(output_i_size, 0, 0);
     }
 
-    // 执行模型
+    // 将模型计算任务加入到CUDA流
     bool status;
     status = context->enqueue(1, buffers, stream, nullptr);
     if (!status)
@@ -341,7 +343,6 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         return -1;
     }
 
-    // 对output逐个unwrap
     void **h_output = (void **)malloc(sizeof(void *) * output_num);
     if (!h_output)
     {
@@ -355,7 +356,6 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
     {
         // 找到它们在全局中的索引
         int output_i_index = engine->getBindingIndex(ef.OutputName.at(i).c_str());
-
         int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
@@ -363,25 +363,19 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return -1;
         }
-        // h_output[i] = UnwrapOutput(buffers[output_i_index]);
-        h_output[i] = malloc(output_i_size);
-        if (!h_output[i])
-        {
-            gLogError << __CXX_PREFIX << "Can not allocate memory for h_output[i]" << endl;
-            return -1;
-        }
-        check_cuda_success(cudaMemcpyAsync(h_output[i], buffers[output_i_index], output_i_size, cudaMemcpyDeviceToHost, stream), res);
-        if (res != 0)
-        {
-            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return -1;
-        }
+        
+        // 对每个output的unwrap加入到CUDA流中
+        h_output[i] = UnwrapOutputAsync(buffers[output_i_index], output_i_size, allocator, stream);
     }
 
     check_cuda_success(cudaStreamSynchronize(stream), res);
+
+    // 释放执行显存
+    allocator->free(execution_memory);
+
     if (res != 0)
     {
-        gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
+        gLogError << __CXX_PREFIX << "Can not synchrnonize cuda stream." << endl;
         return -1;
     }
 
@@ -397,7 +391,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             free(h_output);
             h_output = nullptr;
             output.clear();
-            break;
+            return -1;
         }
         // 对h_output进行逐字节写入到result
         std::vector<char> temp;
@@ -407,32 +401,22 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         }
         output.push_back(temp);
     }
-    // 释放CUDA memory
-    for (int i = 0; i < (input_num + output_num); i++)
-    {
-        check_cuda_success(cudaFree(buffers[i]), res);
-        if (res != 0)
-        {
-            gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
-            return -1;
-        }
-    }
-    free(buffers);
+
     // 释放h_output
     for (int i = 0; i < ef.OutputName.size(); i++)
     {
         free(h_output[i]);
     }
     free(h_output);
+
+    // 销毁CUDA stream
     check_cuda_success(cudaStreamDestroy(stream), res);
     if (res != 0)
     {
-        gLogError << __CXX_PREFIX << "Can not input event into cuda stream." << endl;
+        gLogError << __CXX_PREFIX << "Can not destroy cuda stream." << endl;
         return -1;
     }
     return 0;
-    // void *h_output = UnwrapOutput(d_output);
-    // return h_output;
 }
 
 // GetModelInputSize 获取指定模型的输入总大小
@@ -636,8 +620,36 @@ void *UnwrapOutput(void *device_memory, size_t size, IGpuAllocator *allocator)
     check_cuda_success(cudaMemcpy(h_ptr, device_memory, size, cudaMemcpyDeviceToHost), result);
     if (result != 0)
         gLogError << __CXX_PREFIX << "Unwrap output failed." << endl;
-    if (dynamic_cast<KGAllocator *>(allocator) == nullptr)
-        allocator->free(device_memory);
+    return h_ptr;
+}
+
+void *WrapInputAsync(void *host_memory, uint64_t size, IGpuAllocator *allocator, cudaStream_t stream)
+{
+    void *res = allocator->allocate(size, 0, 0);
+    int result = 0;
+    check_cuda_success(cudaMemcpyAsync(res, host_memory, size, cudaMemcpyHostToDevice, stream), result);
+    if (result != 0)
+    {
+        gLogError << __CXX_PREFIX << "Wrap output failed." << endl;
+        return nullptr;
+    }
+    return res;
+}
+
+void *UnwrapOutputAsync(void *device_memory, size_t size, IGpuAllocator *allocator, cudaStream_t stream)
+{
+    // int *h_ptr = static_cast<int *>((void *)new char[size]);
+    void *h_ptr = malloc(size);
+    if (!h_ptr)
+    {
+        gLogError << __CXX_PREFIX << "Can not malloc h_ptr" << endl;
+        return nullptr;
+    }
+    memset(h_ptr, 0, size);
+    int result = 0;
+    check_cuda_success(cudaMemcpyAsync(h_ptr, device_memory, size, cudaMemcpyDeviceToHost, stream), result);
+    if (result != 0)
+        gLogError << __CXX_PREFIX << "Unwrap output failed." << endl;
     return h_ptr;
 }
 
