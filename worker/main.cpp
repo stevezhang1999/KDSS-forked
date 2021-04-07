@@ -158,6 +158,9 @@ int main(int argc, char **argv)
     {
         string model_name;
         auto pos = args.model_path.find_last_of('/');
+        // For Windows
+        if (pos == -1)
+            auto pos = args.engine_path.find_last_of('\\');
         if (pos == -1)
         {
             cerr << "ONNX文件路径不合法。" << endl;
@@ -175,6 +178,9 @@ int main(int argc, char **argv)
     {
         string engine_name;
         auto pos = args.engine_path.find_last_of('/');
+        // For Windows
+        if (pos == -1)
+            auto pos = args.engine_path.find_last_of('\\');
         if (pos == -1)
         {
             cerr << "TensorRT引擎路径不合法。" << endl;

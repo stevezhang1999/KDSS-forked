@@ -28,9 +28,10 @@ else
 	CUDA_LIB_DIR := $(WINDOWS_CUDA_PATH)/bin
 	TRT_INCLUDE_DIR := $(TRT_PATH)/include
 	HASH_INCLUDE_DIR := $(WINDOWS_KGMALLOC_PATH)/hash
+	
 	TRT_SAMPLE_INCLUDE_DIR := $(TRT_PATH)/samples
 	TRT_LIB_DIR := $(TRT_PATH)/lib
-	KGMALLOC_LIB_DIR := $(WINDOWS_KGMALLOC_PATH)/lib
+	KGMALLOC_LIB_DIR := "$(WINDOWS_KGMALLOC_PATH)"/hash -L"$(WINDOWS_KGMALLOC_PATH)"/umap
 
 	CUDA_LIBS := $(CUDA_LIB_DIR)/cudnn64_7.dll $(CUDA_LIB_DIR)/cublas64_100.dll $(CUDA_LIB_DIR)/cudart64_100.dll $(CUDA_LIB_DIR)/curand64_100.dll
 	TRT_LIBS := $(TRT_LIB_DIR)/nvinfer.dll $(TRT_LIB_DIR)/nvparsers.dll $(TRT_LIB_DIR)/nvinfer_plugin.dll  $(TRT_LIB_DIR)/nvonnxparser.dll
@@ -54,6 +55,10 @@ LIBS += $(KGMALLOC_LIBS)
 
 CFLAGS := -g -std=c++11 -Wno-deprecated-declarations -I$(INCLUDE_DIR) -L$(LIB_DIR) $(CUDA_LIBS) $(TRT_LIBS) $(LIBS) -m64
 
+ifneq ($(ARCH), $(LINUX))
+	CFLAGS += -fexec-charset=GBK -finput-charset=UTF-8
+endif
+
 TARGET := main
 SRCS := $(wildcard *.cpp)
 OBJS := $(patsubst %cpp,%o,$(SRCS))
@@ -64,7 +69,7 @@ EXT_OBJS += ../util/RWMutex/*.o
 EXT_OBJS += $(KGMALLOC_PATH)/hash/hash.o 
 EXT_OBJS += $(KGMALLOC_PATH)/umap/umap.o
 
-all:$(TARGET)
+all:rw_mutex $(TARGET)
 %.o:%.cpp
 ifeq ($(ARCH),$(LINUX))
 	@echo "Compiling on Linux"
@@ -77,6 +82,14 @@ $(TARGET):$(OBJS)
 	@echo "Linking to demo..."
 	$(CXX) $(CFLAGS) -o $@ $(EXT_OBJS) $^
 
+rw_mutex:
+ifeq ($(ARCH),$(LINUX))
+	@echo "Compiling on Linux"
+else
+	@echo "Compiling on Windows"
+endif
+	@echo "Compiling" ../util/RWMutex/rwmutex.cpp
+	$(CXX) -c ../util/RWMutex/rwmutex.cpp -o ../util/RWMutex/rwmutex.o
 .PHONY : clean
 clean:
 ifeq ($(ARCH),$(LINUX))

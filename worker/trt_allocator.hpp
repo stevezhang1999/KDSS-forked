@@ -8,6 +8,10 @@
 #include <sstream>
 #include <memory>
 
+#if defined(_WIN32) || defined(_MSC_VER)
+typedef unsigned int uint;
+#endif
+
 class KGAllocator final : public nvinfer1::IGpuAllocator
 {
 public:

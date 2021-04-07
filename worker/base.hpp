@@ -10,7 +10,7 @@
 #include "../util/RWMutex/rwmutex.hpp"
 
 #if defined(_WIN32) || defined(_MSC_VER)
-    typedef uint unsigned int
+typedef unsigned int uint;
 #endif
 
 enum ModelType
