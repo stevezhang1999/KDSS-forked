@@ -1,16 +1,28 @@
+#ARCH  
+ARCH= "$(shell uname -s 2>/dev/null)"
+
+LINUX="Linux"
+
 CXX := g++
 CC := gcc
 
-TRT_PATH := /home/lijiakang/TensorRT-6.0.1.5
-KGMALLOC_PATH := /home/lijiakang/kgmalloc
+ifeq ($(ARCH) , $(LINUX))
+	TRT_PATH := /home/lijiakang/TensorRT-6.0.1.5
+	KGMALLOC_PATH := /home/lijiakang/kgmalloc
+	CUDA_INCLUDE_DIR := /usr/local/cuda/include
+	CUDA_LIB_DIR := /usr/local/cuda/lib64
+else
+	TRT_PATH := $(WINDOWS_TENSORRT_PATH)
+	KGMALLOC_PATH := $(WINDOWS_KGMALLOC_PATH)
+	CUDA_INCLUDE_DIR := $(CUDA_PATH)/include
+	CUDA_LIB_DIR := $(CUDA_PATH)/lib/x64
+endif
 
-CUDA_INCLUDE_DIR := /usr/local/cuda/include
 TRT_INCLUDE_DIR := $(TRT_PATH)/include
 
 HASH_INCLUDE_DIR := $(KGMALLOC_PATH)/hash
 TRT_SAMPLE_INCLUDE_DIR := $(TRT_PATH)/samples
 
-CUDA_LIB_DIR := /usr/local/cuda/lib64
 TRT_LIB_DIR := $(TRT_PATH)/lib
 KGMALLOC_LIB_DIR := $(KGMALLOC_PATH)/lib
 
@@ -25,13 +37,21 @@ LIB_DIR := $(CUDA_LIB_DIR)
 LIB_DIR += -L$(TRT_LIB_DIR)
 LIB_DIR += -L$(KGMALLOC_LIB_DIR)
 
-CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand
-TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
+ifeq ($(ARCH) , $(LINUX))
+	CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand
+	TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
+	LIBS := -lrt -ldl -lpthread
+else
+	CUDA_LIBS := cudnn64_7.dll cublas64_100.dll cudart64_100.dll curand64_100.dll
+	TRT_LIBS := nvinfer.dll nvparsers.dll nvinfer_plugin.dll nvonnxparser.dll
+	LIBS := libgcc_s_seh-1.dll libwinpthread-1.dll
+endif
+
 KGMALLOC_LIBS := -lumap -lhash
-LIBS := -lrt -ldl -lpthread
 LIBS += $(KGMALLOC_LIBS)
 LIBS += $(CUDA_LIBS)
 LIBS += $(TRT_LIBS)
+
 
 CFLAGS := -g -std=c++11 -Wno-deprecated-declarations -I$(INCLUDE_DIR) -L$(LIB_DIR) $(LIBS)
 
@@ -46,6 +66,11 @@ EXT_OBJS += $(KGMALLOC_PATH)/hash/hash.o
 EXT_OBJS += $(KGMALLOC_PATH)/umap/umap.o
 
 all:$(TARGET)
+ifeq ($(ARCH),$(LINUX))
+	@echo "Compiling on Linux"
+else
+	@echo "Compiling on Windows"
+endif
 %.o:%.cpp
 	@echo "Compling" $<
 	$(CXX) -c $< $(CFLAGS) 
@@ -55,4 +80,9 @@ $(TARGET):$(OBJS)
 
 .PHONY : clean
 clean:
+ifeq ($(ARCH),$(LINUX))
 	rm -rf $(TARGET) *.o
+else
+	rm -rf $(TARGET).exe *.o
+endif
+	
