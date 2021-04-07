@@ -16,8 +16,8 @@ ifeq ($(ARCH) , $(LINUX))
 	TRT_SAMPLE_INCLUDE_DIR := $(TRT_PATH)/samples
 	TRT_LIB_DIR := $(TRT_PATH)/lib
 	KGMALLOC_LIB_DIR := $(KGMALLOC_PATH)/lib
-	KGMALLOC_LIB_DIR += $(KGMALLOC_PATH)/hash
-	KGMALLOC_LIB_DIR += $(KGMALLOC_PATH)/umap
+	HASH_LIB_DIR += $(KGMALLOC_PATH)/hash
+	UMAP_LIB_DIR += $(KGMALLOC_PATH)/umap
 	CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand
 	TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
 	LIBS := -lrt -ldl -lpthread
@@ -50,6 +50,8 @@ INCLUDE_DIR += -I.
 LIB_DIR := $(CUDA_LIB_DIR)
 LIB_DIR += -L$(TRT_LIB_DIR)
 LIB_DIR += -L$(KGMALLOC_LIB_DIR)
+LIB_DIR += -L$(HASH_LIB_DIR)
+LIB_DIR += -L$(UMAP_LIB_DIR)
 
 KGMALLOC_LIBS := -lumap -lhash
 LIBS += $(KGMALLOC_LIBS)
