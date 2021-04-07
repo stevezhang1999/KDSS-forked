@@ -103,7 +103,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             return -1;
         }
 
-        context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
+        context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContextWithoutDeviceMemory());
         if (!context)
         {
             gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
@@ -292,7 +292,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             return -1;
         }
 
-        context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
+        context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContextWithoutDeviceMemory());
         if (!context)
         {
             gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
