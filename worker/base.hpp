@@ -9,6 +9,10 @@
 #include <memory>
 #include "../util/RWMutex/rwmutex.hpp"
 
+#if defined(_WIN32) || defined(_MSC_VER)
+    typedef uint unsigned int
+#endif
+
 enum ModelType
 {
     ONNX_FILE,
