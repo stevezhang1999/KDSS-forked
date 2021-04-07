@@ -31,8 +31,8 @@ KGAllocator::KGAllocator()
     {
         string err_msg;
         ostringstream oss(err_msg);
-        oss << __CXX_PREFIX << "kgmalloc init failed. Error code: " << static_cast<int>(err);
-        gLogError << __CXX_PREFIX << "kgmalloc init failed. Error code: " << static_cast<int>(err);
+        oss << __CXX_PREFIX << "kgmalloc init failed. Error code: " << static_cast<int>(err) << endl;
+        cerr << oss.str();
         throw oss.str().c_str();
     }
 }
