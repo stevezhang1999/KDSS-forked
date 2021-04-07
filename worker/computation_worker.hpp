@@ -9,26 +9,7 @@
 class ComputationWorker final : public IWorker
 {
 public:
-    ComputationWorker()
-    {
-        cudaDeviceProp prop;
-        int device;
-        int result;
-        check_cuda_success(cudaGetDevice(&device), result);
-        if (!result)
-        {
-            cerr << __CXX_PREFIX << "CUDA error." << endl;
-            throw "";
-        }
-        check_cuda_success(cudaGetDeviceProperties(&prop, device), result);
-        if (!result)
-        {
-            cerr << __CXX_PREFIX << "CUDA error." << endl;
-            throw "";
-        }
-        // See also: https://stackoverflow.com/questions/14082964/cuda-alignment-256bytes-seriously
-        alignment = prop.textureAlignment;
-    }
+    ComputationWorker();
     virtual ~ComputationWorker() {}
     virtual int Load(std::string model_name, std::string model_file, std::string file_path, ModelType type)
     {
@@ -54,7 +35,9 @@ public:
     // \param input 载有数据载荷的vector
     // \param output 将会被写入输出数据的vector
     // \param allocator 分配内存使用的allocator
-    int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator);
+    // \param ctx 执行需要用的上下文。如果ctx为nullptr，则从引擎表获取引擎构建上下文。当ctx不为nullptr时，model_name无效。
+    // \param eInfo 使用给定上下文执行时需要自带的EngineInfo信息，当ctx为nullptr时，该值将被忽略。
+    int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
 
     // Compute 根据模型使用kg_allocator执行计算。
     // \param model_name 需要调用的模型的名称
@@ -62,18 +45,21 @@ public:
     // \param output 将会被写入输出数据的vector
     virtual int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output);
 
+    // ComputeWithStream 使用CUDA stream+自定义分配器进行overlapped异步计算
+    // \param model_name 需要调用的模型的名称
+    // \param input 载有数据载荷的vector
+    // \param output 将会被写入输出数据的vector
+    // \param allocator 用于分配显存的分配器
+    // \param ctx 执行需要用的上下文。如果ctx为nullptr，则从引擎表获取引擎构建上下文。当ctx不为nullptr时，model_name无效。
+    // \param eInfo 使用给定上下文执行时需要自带的EngineInfo信息，当ctx为nullptr时，该值将被忽略。
+    int ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
+
     // ComputeWithStream 使用CUDA stream+kg_allocator进行overlapped异步计算
     // \param model_name 需要调用的模型的名称
     // \param input 载有数据载荷的vector
     // \param output 将会被写入输出数据的vector
     int ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output);
-
-    // ComputeWithStream 使用CUDA stream+自定义分配器进行overlapped异步计算
-    // \param model_name 需要调用的模型的名称
-    // \param input 载有数据载荷的vector
-    // \param output 将会被写入输出数据的vector
-    int ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output,nvinfer1::IGpuAllocator *allocator);
-
+    
     // GetModelInputSize 获取指定模型的输入总大小
     int GetModelInputSize(std::string model_name, int index, uint64_t *result) const;
 

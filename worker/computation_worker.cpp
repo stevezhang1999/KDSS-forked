@@ -47,6 +47,27 @@ struct MemoryDeleter
 template <typename T>
 using MemoryUniquePtr = std::unique_ptr<T, MemoryDeleter>;
 
+ComputationWorker::ComputationWorker()
+{
+    cudaDeviceProp prop;
+    int device;
+    int result;
+    check_cuda_success(cudaGetDevice(&device), result);
+    if (!result)
+    {
+        cerr << __CXX_PREFIX << "CUDA error." << endl;
+        throw "";
+    }
+    check_cuda_success(cudaGetDeviceProperties(&prop, device), result);
+    if (!result)
+    {
+        cerr << __CXX_PREFIX << "CUDA error." << endl;
+        throw "";
+    }
+    // See also: https://stackoverflow.com/questions/14082964/cuda-alignment-256bytes-seriously
+    alignment = prop.textureAlignment;
+}
+
 std::string ComputationWorker::GetModelName(int index) const
 {
     mt_rw_mu.rlock();
@@ -57,38 +78,47 @@ std::string ComputationWorker::GetModelName(int index) const
     return iter->second;
 }
 
-int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
+int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx = nullptr, EngineInfo *eInfo = nullptr)
 {
-    // 使用默认分配器kg_allocator
-    return this->Compute(model_name, input, output, kg_allocator.get());
-}
-
-int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator)
-{
-    // 从table中取得已注册的引擎
-    et_rw_mu.rlock();
-    auto iter = engine_table.find(model_name);
-    et_rw_mu.runlock();
-    if (iter == engine_table.end())
-    {
-        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
-        return -1;
-    }
-    EngineInfo ef = iter->second;
-    nvinfer1::ICudaEngine *engine = ef.engine.get();
-    if (!engine)
-    {
-        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
-        return -1;
-    }
-
+    EngineInfo ef;
+    nvinfer1::ICudaEngine *engine;
     SampleUniquePtr<nvinfer1::IExecutionContext> context;
 
-    context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
-    if (!context)
+    if (ctx == nullptr)
     {
-        gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
-        return -1;
+        // 从table中取得已注册的引擎
+        et_rw_mu.rlock();
+        auto iter = engine_table.find(model_name);
+        et_rw_mu.runlock();
+        if (iter == engine_table.end())
+        {
+            gLogError << __CXX_PREFIX << "engine not vaild." << endl;
+            return -1;
+        }
+        ef = iter->second;
+        engine = ef.engine.get();
+        if (!engine)
+        {
+            gLogError << __CXX_PREFIX << "engine not vaild." << endl;
+            return -1;
+        }
+
+        context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
+        if (!context)
+        {
+            gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
+            return -1;
+        }
+    }
+    else
+    {
+        context = SampleUniquePtr<nvinfer1::IExecutionContext>(ctx);
+        if (eInfo == nullptr)
+        {
+            gLogError << __CXX_PREFIX << "Compute with given context but without engine info, exiting..." << endl;
+            return -1;
+        }
+        memcpy(&ef, eInfo, sizeof(EngineInfo));
     }
 
     // 为Engine分配执行显存
@@ -231,37 +261,53 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
     // return h_output;
 }
 
-int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
+int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
 {
-    return this->ComputeWithStream(model_name, input, output, kg_allocator.get());
+    // 使用默认分配器kg_allocator
+    return this->Compute(model_name, input, output, kg_allocator.get());
 }
 
-int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, IGpuAllocator *allocator)
+int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx = nullptr, EngineInfo *eInfo = nullptr)
 {
-    // 从table中取得已注册的引擎
-    et_rw_mu.rlock();
-    auto iter = engine_table.find(model_name);
-    et_rw_mu.runlock();
-    if (iter == engine_table.end())
-    {
-        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
-        return -1;
-    }
-    EngineInfo ef = iter->second;
-    nvinfer1::ICudaEngine *engine = ef.engine.get();
-    if (!engine)
-    {
-        gLogError << __CXX_PREFIX << "engine not vaild." << endl;
-        return -1;
-    }
-
+    EngineInfo ef;
+    nvinfer1::ICudaEngine *engine;
     SampleUniquePtr<nvinfer1::IExecutionContext> context;
 
-    context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
-    if (!context)
+    if (ctx == nullptr)
     {
-        gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
-        return -1;
+        // 从table中取得已注册的引擎
+        et_rw_mu.rlock();
+        auto iter = engine_table.find(model_name);
+        et_rw_mu.runlock();
+        if (iter == engine_table.end())
+        {
+            gLogError << __CXX_PREFIX << "engine not vaild." << endl;
+            return -1;
+        }
+        ef = iter->second;
+        engine = ef.engine.get();
+        if (!engine)
+        {
+            gLogError << __CXX_PREFIX << "engine not vaild." << endl;
+            return -1;
+        }
+
+        context = SampleUniquePtr<nvinfer1::IExecutionContext>(engine->createExecutionContext());
+        if (!context)
+        {
+            gLogError << __CXX_PREFIX << "engine start failed, context error." << endl;
+            return -1;
+        }
+    }
+    else
+    {
+        context = SampleUniquePtr<nvinfer1::IExecutionContext>(ctx);
+        if (eInfo == nullptr)
+        {
+            gLogError << __CXX_PREFIX << "Compute with given context but without engine info, exiting..." << endl;
+            return -1;
+        }
+        memcpy(&ef, eInfo, sizeof(EngineInfo));
     }
 
     // 为Engine分配执行显存
@@ -363,7 +409,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return -1;
         }
-        
+
         // 对每个output的unwrap加入到CUDA流中
         h_output[i] = UnwrapOutputAsync(buffers[output_i_index], output_i_size, allocator, stream);
     }
@@ -417,6 +463,11 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         return -1;
     }
     return 0;
+}
+
+int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
+{
+    return this->ComputeWithStream(model_name, input, output, kg_allocator.get());
 }
 
 // GetModelInputSize 获取指定模型的输入总大小
