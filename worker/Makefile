@@ -11,49 +11,48 @@ ifeq ($(ARCH) , $(LINUX))
 	KGMALLOC_PATH := /home/lijiakang/kgmalloc
 	CUDA_INCLUDE_DIR := /usr/local/cuda/include
 	CUDA_LIB_DIR := /usr/local/cuda/lib64
+	TRT_INCLUDE_DIR := $(TRT_PATH)/include
+	HASH_INCLUDE_DIR := $(KGMALLOC_PATH)/hash
+	TRT_SAMPLE_INCLUDE_DIR := $(TRT_PATH)/samples
+	TRT_LIB_DIR := $(TRT_PATH)/lib
+	KGMALLOC_LIB_DIR := $(KGMALLOC_PATH)/lib
+	CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand
+	TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
+	LIBS := -lrt -ldl -lpthread
 else
-	TRT_PATH := "$(WINDOWS_TENSORRT_PATH)"
-	KGMALLOC_PATH := "$(WINDOWS_KGMALLOC_PATH)"
-	CUDA_INCLUDE_DIR := "$(CUDA_PATH)/include"
-	CUDA_LIB_DIR := "$(CUDA_PATH)/lib/x64"
+	TRT_PATH := "$(subst \,/,$(WINDOWS_TENSORRT_PATH))"
+	KGMALLOC_PATH :=  "$(subst \,/,$(WINDOWS_KGMALLOC_PATH))"
+	WINDOWS_CUDA_PATH =  "$(subst \,/,$(CUDA_PATH))"
+
+	CUDA_INCLUDE_DIR := $(WINDOWS_CUDA_PATH)/include
+	CUDA_LIB_DIR := $(WINDOWS_CUDA_PATH)/bin
+	TRT_INCLUDE_DIR := $(TRT_PATH)/include
+	HASH_INCLUDE_DIR := $(WINDOWS_KGMALLOC_PATH)/hash
+	TRT_SAMPLE_INCLUDE_DIR := $(TRT_PATH)/samples
+	TRT_LIB_DIR := $(TRT_PATH)/lib
+	KGMALLOC_LIB_DIR := $(WINDOWS_KGMALLOC_PATH)/lib
+
+	CUDA_LIBS := $(CUDA_LIB_DIR)/cudnn64_7.dll $(CUDA_LIB_DIR)/cublas64_100.dll $(CUDA_LIB_DIR)/cudart64_100.dll $(CUDA_LIB_DIR)/curand64_100.dll
+	TRT_LIBS := $(TRT_LIB_DIR)/nvinfer.dll $(TRT_LIB_DIR)/nvparsers.dll $(TRT_LIB_DIR)/nvinfer_plugin.dll  $(TRT_LIB_DIR)/nvonnxparser.dll
+	LIBS := -lpthread
 endif
-
-TRT_INCLUDE_DIR := $(TRT_PATH)/include
-
-HASH_INCLUDE_DIR := $(KGMALLOC_PATH)/hash
-TRT_SAMPLE_INCLUDE_DIR := $(TRT_PATH)/samples
-
-TRT_LIB_DIR := $(TRT_PATH)/lib
-KGMALLOC_LIB_DIR := $(KGMALLOC_PATH)/lib
-
 
 INCLUDE_DIR := $(CUDA_INCLUDE_DIR)
 INCLUDE_DIR += -I$(TRT_INCLUDE_DIR)
 INCLUDE_DIR += -I$(KGMALLOC_PATH)
 INCLUDE_DIR += -I$(HASH_INCLUDE_DIR)
 INCLUDE_DIR += -I$(TRT_SAMPLE_INCLUDE_DIR)
+INCLUDE_DIR += -I.
 
 LIB_DIR := $(CUDA_LIB_DIR)
 LIB_DIR += -L$(TRT_LIB_DIR)
 LIB_DIR += -L$(KGMALLOC_LIB_DIR)
 
-ifeq ($(ARCH) , $(LINUX))
-	CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand
-	TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
-	LIBS := -lrt -ldl -lpthread
-else
-	CUDA_LIBS := cudnn64_7.dll cublas64_100.dll cudart64_100.dll curand64_100.dll
-	TRT_LIBS := nvinfer.dll nvparsers.dll nvinfer_plugin.dll nvonnxparser.dll
-	LIBS := libgcc_s_seh-1.dll libwinpthread-1.dll
-endif
-
 KGMALLOC_LIBS := -lumap -lhash
 LIBS += $(KGMALLOC_LIBS)
-LIBS += $(CUDA_LIBS)
-LIBS += $(TRT_LIBS)
 
 
-CFLAGS := -g -std=c++11 -Wno-deprecated-declarations -I$(INCLUDE_DIR) -L$(LIB_DIR) $(LIBS)
+CFLAGS := -g -std=c++11 -Wno-deprecated-declarations -I$(INCLUDE_DIR) -L$(LIB_DIR) $(CUDA_LIBS) $(TRT_LIBS) $(LIBS) -m64
 
 TARGET := main
 SRCS := $(wildcard *.cpp)
