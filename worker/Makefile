@@ -12,8 +12,8 @@ ifeq ($(ARCH) , $(LINUX))
 	CUDA_INCLUDE_DIR := /usr/local/cuda/include
 	CUDA_LIB_DIR := /usr/local/cuda/lib64
 else
-	TRT_PATH := $(WINDOWS_TENSORRT_PATH)
-	KGMALLOC_PATH := $(WINDOWS_KGMALLOC_PATH)
+	TRT_PATH := "$(WINDOWS_TENSORRT_PATH)"
+	KGMALLOC_PATH := "$(WINDOWS_KGMALLOC_PATH)"
 	CUDA_INCLUDE_DIR := "$(CUDA_PATH)/include"
 	CUDA_LIB_DIR := "$(CUDA_PATH)/lib/x64"
 endif
