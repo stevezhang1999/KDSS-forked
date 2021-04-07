@@ -65,12 +65,12 @@ EXT_OBJS += $(KGMALLOC_PATH)/hash/hash.o
 EXT_OBJS += $(KGMALLOC_PATH)/umap/umap.o
 
 all:$(TARGET)
+%.o:%.cpp
 ifeq ($(ARCH),$(LINUX))
 	@echo "Compiling on Linux"
 else
 	@echo "Compiling on Windows"
 endif
-%.o:%.cpp
 	@echo "Compling" $<
 	$(CXX) -c $< $(CFLAGS) 
 $(TARGET):$(OBJS)
