@@ -15,19 +15,20 @@ extern std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator;
 template <typename T>
 using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
 
-void *WrapInput(void *host_memory, uint64_t size);
-void *UnwrapOutput(void *device_memory);
+void *WrapInput(void *host_memory, uint64_t size, IGpuAllocator *allocator = kg_allocator.get());
+void *UnwrapOutput(void *device_memory, size_t size, IGpuAllocator *allocator = kg_allocator.get());
 
-struct KGMemoryDeleter
+struct MemoryDeleter
 {
     template <typename T>
     void operator()(T *obj) const
     {
         if (obj)
         {
-            for (int i = 0; i < current_length;i++)
+            for (int i = 0; i < current_length; i++)
             {
-                kg_allocator->free(obj[i]);
+                if (allocator)
+                    allocator->free(obj[i]);
             }
             delete[] obj;
             obj = nullptr;
@@ -35,10 +36,13 @@ struct KGMemoryDeleter
     }
     // Current_length of obj
     size_t current_length = 0;
+
+    // Current allocator
+    IGpuAllocator *allocator = nullptr;
 };
 
 template <typename T>
-using KGMemoryUniquePtr = std::unique_ptr<T, KGMemoryDeleter>;
+using MemoryUniquePtr = std::unique_ptr<T, MemoryDeleter>;
 
 std::string ComputationWorker::GetModelName(int index) const
 {
@@ -50,7 +54,7 @@ std::string ComputationWorker::GetModelName(int index) const
     return iter->second;
 }
 
-int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
+int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator)
 {
     // 从table中取得已注册的引擎
     et_rw_mu.rlock();
@@ -83,7 +87,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
     int output_num = ef.OutputName.size();
 
     // fix: input没有被free掉，对buffers使用智能指针
-    KGMemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
+    MemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed." << endl;
@@ -91,6 +95,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
     }
 
     buffers.get_deleter().current_length = input_num + output_num;
+    buffers.get_deleter().allocator = allocator;
 
     // 处理host端input到device端input
     for (int i = 0; i < ef.InputName.size(); i++)
@@ -109,7 +114,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             delete[] temp_buffers;
         }
         uint64_t input_i_size;
-        int res = this->GetModelInputDim(model_name, ef.InputName.at(i), &input_i_size);
+        int res = this->GetModelInputSize(model_name, ef.InputName.at(i), &input_i_size);
         if (res)
         {
             // This should not happen
@@ -134,14 +139,14 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             buffers.reset(temp_buffers);
         }
         uint64_t output_i_size;
-        int res = this->GetModelOutputDim(model_name, ef.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return -1;
         }
-        buffers.get()[output_i_index] = kg_allocator->allocate(output_i_size, 0, 0);
+        buffers.get()[output_i_index] = allocator->allocate(output_i_size, 0, 0);
     }
 
     // 执行模型
@@ -168,25 +173,26 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
         int output_i_index = engine->getBindingIndex(ef.OutputName.at(i).c_str());
 
         uint64_t output_i_size;
-        int res = this->GetModelOutputDim(model_name, ef.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return -1;
         }
-        h_output[i] = UnwrapOutput(buffers.get()[output_i_index]);
+        h_output[i] = UnwrapOutput(buffers.get()[output_i_index], output_i_size);
         if (!h_output[i])
         {
             // 释放所有h_output[0,i-1]的内存
             for (int j = 0; j < i; j++)
             {
                 free(h_output[j]);
+
             }
             free(h_output);
             h_output = nullptr;
             output.clear();
-            break;
+            return -1;
         }
         // 对h_output进行逐字节写入到result
         std::vector<char> temp;
@@ -206,6 +212,12 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
     return 0;
     // void *h_output = UnwrapOutput(d_output);
     // return h_output;
+}
+
+int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
+{
+    // 使用默认分配器kg_allocator
+    return this->Compute(model_name, input, output, kg_allocator.get());
 }
 
 int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
@@ -270,7 +282,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             buffers = (void **)realloc(buffers, sizeof(void *) * input_i_index);
         }
         uint64_t input_i_size;
-        int res = this->GetModelInputDim(model_name, ef.InputName.at(i), &input_i_size);
+        int res = this->GetModelInputSize(model_name, ef.InputName.at(i), &input_i_size);
         if (res)
         {
             // This should not happen
@@ -304,7 +316,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             buffers = (void **)realloc(buffers, sizeof(void *) * output_i_index);
         }
         uint64_t output_i_size;
-        int res = this->GetModelOutputDim(model_name, ef.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
@@ -344,7 +356,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         // 找到它们在全局中的索引
         int output_i_index = engine->getBindingIndex(ef.OutputName.at(i).c_str());
 
-        int res = this->GetModelOutputDim(model_name, ef.OutputName.at(i), &output_i_size);
+        int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
         if (res)
         {
             // This should not happen
@@ -423,8 +435,8 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
     // return h_output;
 }
 
-// GetModelInputDim 获取指定模型的输入总大小
-int ComputationWorker::GetModelInputDim(std::string model_name, int index, uint64_t *result) const
+// GetModelInputSize 获取指定模型的输入总大小
+int ComputationWorker::GetModelInputSize(std::string model_name, int index, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -463,7 +475,7 @@ int ComputationWorker::GetModelInputDim(std::string model_name, int index, uint6
     return 0;
 }
 
-int ComputationWorker::GetModelInputDim(std::string model_name, std::string input_name, uint64_t *result) const
+int ComputationWorker::GetModelInputSize(std::string model_name, std::string input_name, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -510,8 +522,8 @@ int ComputationWorker::GetModelInputDim(std::string model_name, std::string inpu
     return 0;
 }
 
-// GetModelOutputDim 获取指定模型的输出总大小
-int ComputationWorker::GetModelOutputDim(std::string model_name, int index, uint64_t *result) const
+// GetModelOutputSize 获取指定模型的输出总大小
+int ComputationWorker::GetModelOutputSize(std::string model_name, int index, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -550,8 +562,8 @@ int ComputationWorker::GetModelOutputDim(std::string model_name, int index, uint
     return 0;
 }
 
-// GetModelOutputDim 获取指定模型的输出总大小
-int ComputationWorker::GetModelOutputDim(std::string model_name, std::string output_name, uint64_t *result) const
+// GetModelOutputSize 获取指定模型的输出总大小
+int ComputationWorker::GetModelOutputSize(std::string model_name, std::string output_name, uint64_t *result) const
 {
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -597,9 +609,9 @@ int ComputationWorker::GetModelOutputDim(std::string model_name, std::string out
     return 0;
 }
 
-void *WrapInput(void *host_memory, uint64_t size)
+void *WrapInput(void *host_memory, uint64_t size, IGpuAllocator *allocator)
 {
-    void *res = kg_allocator->allocate(size, 0, 0);
+    void *res = allocator->allocate(size, 0, 0);
     int result = 0;
     check_cuda_success(cudaMemcpy(res, host_memory, size, cudaMemcpyHostToDevice), result);
     if (result != 0)
@@ -610,9 +622,8 @@ void *WrapInput(void *host_memory, uint64_t size)
     return res;
 }
 
-void *UnwrapOutput(void *device_memory)
+void *UnwrapOutput(void *device_memory, size_t size, IGpuAllocator *allocator)
 {
-    uint64_t size = dynamic_cast<KGAllocator *>(kg_allocator.get())->GetDeviceMemorySize(device_memory);
     // int *h_ptr = static_cast<int *>((void *)new char[size]);
     void *h_ptr = malloc(size);
     if (!h_ptr)
@@ -625,7 +636,8 @@ void *UnwrapOutput(void *device_memory)
     check_cuda_success(cudaMemcpy(h_ptr, device_memory, size, cudaMemcpyDeviceToHost), result);
     if (result != 0)
         gLogError << __CXX_PREFIX << "Unwrap output failed." << endl;
-    // kg_allocator->free(device_memory);
+    if (dynamic_cast<KGAllocator *>(allocator) == nullptr)
+        allocator->free(device_memory);
     return h_ptr;
 }
 

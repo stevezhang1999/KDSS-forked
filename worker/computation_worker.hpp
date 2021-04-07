@@ -31,25 +31,32 @@ public:
     // \param model_name 需要调用的模型的名称
     // \param input 载有数据载荷的vector
     // \param output 将会被写入输出数据的vector
-    virtual int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output);
+    // \param allocator 分配内存使用的allocator
+    int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output,nvinfer1::IGpuAllocator *allocator);
 
+    // Compute 开始根据模型执行计算
+    // \param model_name 需要调用的模型的名称
+    // \param input 载有数据载荷的vector
+    // \param output 将会被写入输出数据的vector
+    virtual int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output);
+    
     // ComputeWithStream 使用CUDA stream进行overlapped异步计算
     // \param model_name 需要调用的模型的名称
     // \param input 载有数据载荷的vector
     // \param output 将会被写入输出数据的vector
     int ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output);
 
-    // GetModelInputDim 获取指定模型的输入总大小
-    int GetModelInputDim(std::string model_name, int index, uint64_t *result) const;
+    // GetModelInputSize 获取指定模型的输入总大小
+    int GetModelInputSize(std::string model_name, int index, uint64_t *result) const;
 
-    // GetModelInputDim 获取指定模型的输入总大小
-    int GetModelInputDim(std::string model_name, std::string input_name, uint64_t *result) const;
+    // GetModelInputSize 获取指定模型的输入总大小
+    int GetModelInputSize(std::string model_name, std::string input_name, uint64_t *result) const;
 
-    // GetModelOutputDim 获取指定模型的输出总大小
-    int GetModelOutputDim(std::string model_name, int index, uint64_t *result) const;
+    // GetModelOutputSize 获取指定模型的输出总大小
+    int GetModelOutputSize(std::string model_name, int index, uint64_t *result) const;
 
-    // GetModelOutputDim 获取指定模型的输出总大小
-    int GetModelOutputDim(std::string model_name, std::string output_name, uint64_t *result) const;
+    // GetModelOutputSize 获取指定模型的输出总大小
+    int GetModelOutputSize(std::string model_name, std::string output_name, uint64_t *result) const;
 
     // GetModelInfo 获取指定模型的信息
     int GetModel(std::string model_name, EngineInfo *ef) const;
