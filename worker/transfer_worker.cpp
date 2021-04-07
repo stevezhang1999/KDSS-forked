@@ -265,6 +265,9 @@ int TransferWorker::LoadFromEngineFile(std::string model_name, std::string model
     std::string serialize_str = getTRTEngine(file_path, model_file);
     auto mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(runtime->deserializeCudaEngine(serialize_str.data(), serialize_str.size()), samplesCommon::InferDeleter());
     runtime->destroy();
+
+    if (!mEngine)
+        return -1;
     // 生成索引
     mt_rw_mu.lock();
     max_index++;
