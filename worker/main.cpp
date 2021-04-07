@@ -55,7 +55,7 @@ int main()
 
     {
         uint64_t OutputDim = 0;
-        int executed = computation_worker.GetModelOutputDim("mnist", 0, &OutputDim);
+        int executed = computation_worker.GetModelOutputSize("mnist", 0, &OutputDim);
         if (executed)
         {
             gLogError << __CXX_PREFIX << "Cannot get output size of output[0]" << endl;
