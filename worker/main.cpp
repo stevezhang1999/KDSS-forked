@@ -278,6 +278,5 @@ int main(int argc, char **argv)
         }
         delete output;
     }
-    transfer_worker.destroy();
     return 0;
 }
