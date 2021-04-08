@@ -80,6 +80,20 @@ std::string ComputationWorker::GetModelName(int index) const
 
 int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx = nullptr, EngineInfo *eInfo = nullptr)
 {
+    static int FirstComputeExecute = 0;
+    if (FirstComputeExecute == 0)
+    {
+        FirstComputeExecute = 1;
+        int device;
+        int result;
+        check_cuda_success(cudaGetDevice(&device), result);
+        if (result != 0)
+        {
+            gLogError << "Can not get current executing device, compute aborted." << endl;
+            return -1;
+        }
+        gLogInfo << "Compute on device " << device << endl;
+    }
     EngineInfo ef;
     nvinfer1::ICudaEngine *engine;
     SampleUniquePtr<nvinfer1::IExecutionContext> context;
@@ -272,12 +286,25 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
         gLogError << "Can not get current executing device, compute aborted." << endl;
         return -1;
     }
-    gLogInfo << "Compute on device " << device << endl;
     return this->Compute(model_name, input, output, kg_allocator.get());
 }
 
 int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx = nullptr, EngineInfo *eInfo = nullptr)
 {
+    static int FirstStreamComputeExecute = 0;
+    if (FirstStreamComputeExecute == 0)
+    {
+        FirstStreamComputeExecute = 1;
+        int device;
+        int result;
+        check_cuda_success(cudaGetDevice(&device), result);
+        if (result != 0)
+        {
+            gLogError << "Can not get current executing device, compute aborted." << endl;
+            return -1;
+        }
+        gLogInfo << "Compute on device " << device << endl;
+    }
     EngineInfo ef;
     nvinfer1::ICudaEngine *engine;
     SampleUniquePtr<nvinfer1::IExecutionContext> context;
@@ -327,13 +354,17 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
     // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
     int input_num = ef.InputName.size();
     int output_num = ef.OutputName.size();
-    void **buffers = (void **)malloc(sizeof(void *) * (input_num + output_num));
+
+    // fix: input没有被free掉，对buffers使用智能指针
+    MemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed." << endl;
         return -1;
     }
-    memset(buffers, 0, sizeof(void *) * (input_num + output_num));
+
+    buffers.get_deleter().current_length = input_num + output_num;
+    buffers.get_deleter().allocator = allocator;
 
     // 创建CUDA stream
     cudaStream_t stream;
@@ -354,7 +385,12 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         {
             // This should not happen
             gLogInfo << "Buffers not long enough, reallocating..." << endl;
-            buffers = (void **)realloc(buffers, sizeof(void *) * input_i_index);
+            // buffers = (void **)realloc(buffers, sizeof(void *) * input_i_index);
+            auto temp_buffers = buffers.release();
+            void **new_buffers = new void *[input_i_index + 1];
+            memmove(new_buffers, temp_buffers, sizeof(void *) * (input_num + output_num));
+            buffers.reset(temp_buffers);
+            delete[] temp_buffers;
         }
         uint64_t input_i_size;
         int res = this->GetModelInputSize(model_name, ef.InputName.at(i), &input_i_size);
@@ -364,7 +400,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             gLogError << __CXX_PREFIX << "Can not get input size of : " << ef.InputName.at(i);
             return -1;
         }
-        buffers[input_i_index] = WrapInputAsync(input[i].data(), input_i_size, allocator, stream);
+        buffers.get()[input_i_index] = WrapInputAsync(input[i].data(), input_i_size, allocator, stream);
     }
 
     // 申请device端output空间
@@ -376,7 +412,10 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         {
             // This should not happen
             gLogInfo << "Buffers not long enough, reallocating..." << endl;
-            buffers = (void **)realloc(buffers, sizeof(void *) * output_i_index);
+            // buffers = (void **)realloc(buffers, sizeof(void *) * output_i_index);
+            auto temp_buffers = buffers.release();
+            temp_buffers = (void **)realloc(temp_buffers, sizeof(void *) * output_i_index + 1);
+            buffers.reset(temp_buffers);
         }
         uint64_t output_i_size;
         int res = this->GetModelOutputSize(model_name, ef.OutputName.at(i), &output_i_size);
@@ -386,12 +425,12 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return -1;
         }
-        buffers[output_i_index] = allocator->allocate(output_i_size, 0, 0);
+        buffers.get()[output_i_index] = allocator->allocate(output_i_size, 0, 0);
     }
 
     // 将模型计算任务加入到CUDA流
     bool status;
-    status = context->enqueue(1, buffers, stream, nullptr);
+    status = context->enqueue(1, buffers.get(), stream, nullptr);
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
@@ -420,7 +459,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
         }
 
         // 对每个output的unwrap加入到CUDA流中
-        h_output[i] = UnwrapOutputAsync(buffers[output_i_index], output_i_size, allocator, stream);
+        h_output[i] = UnwrapOutputAsync(buffers.get()[output_i_index], output_i_size, allocator, stream);
     }
 
     check_cuda_success(cudaStreamSynchronize(stream), res);
@@ -476,15 +515,6 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
 
 int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
 {
-    int device;
-    int result;
-    check_cuda_success(cudaGetDevice(&device), result);
-    if (result != 0)
-    {
-        gLogError << "Can not get current executing device, compute aborted." << endl;
-        return -1;
-    }
-    gLogInfo << "Compute on device " << device << endl;
     return this->ComputeWithStream(model_name, input, output, kg_allocator.get());
 }
 
