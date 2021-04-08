@@ -126,19 +126,23 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
     }
     else
     {
-        context = SampleUniquePtr<nvinfer1::IExecutionContext>(ctx);
+        context = nullptr;
         if (eInfo == nullptr)
         {
             gLogError << __CXX_PREFIX << "Compute with given context but without engine info, exiting..." << endl;
             return -1;
         }
-        memcpy(&ef, eInfo, sizeof(EngineInfo));
+        ef = *eInfo;
+        engine = ef.engine.get();
     }
 
     // 为Engine分配执行显存
     uint64_t execute_memory_size = engine->getDeviceMemorySize();
     void *execution_memory = allocator->allocate(execute_memory_size, alignment, 0);
-    context->setDeviceMemory(execution_memory);
+    if (ctx == nullptr)
+        context->setDeviceMemory(execution_memory);
+    else
+        ctx->setDeviceMemory(execution_memory);
 
     // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
     int input_num = ef.InputName.size();
@@ -179,7 +183,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             gLogError << __CXX_PREFIX << "Can not get input size of : " << ef.InputName.at(i);
             return -1;
         }
-        buffers.get()[input_i_index] = WrapInput(input[i].data(), input_i_size);
+        buffers.get()[input_i_index] = WrapInput(input[i].data(), input_i_size, allocator);
     }
 
     // 申请device端output空间
@@ -209,7 +213,14 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
 
     // 执行模型
     bool status;
-    status = context->execute(1, buffers.get());
+    if (ctx == nullptr)
+    {
+        status = context->execute(1, buffers.get());
+    }
+    else
+    {
+        status = ctx->execute(1, buffers.get());
+    }
 
     // 释放执行显存
     allocator->free(execution_memory);
@@ -242,7 +253,7 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
             gLogError << __CXX_PREFIX << "Can not get output size of : " << ef.OutputName.at(i);
             return -1;
         }
-        h_output[i] = UnwrapOutput(buffers.get()[output_i_index], output_i_size);
+        h_output[i] = UnwrapOutput(buffers.get()[output_i_index], output_i_size, allocator);
         if (!h_output[i])
         {
             // 释放所有h_output[0,i-1]的内存
@@ -303,7 +314,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
             gLogError << "Can not get current executing device, compute aborted." << endl;
             return -1;
         }
-        gLogInfo << "Compute on device " << device << endl;
+        gLogInfo << "Compute with CUDA stream on device " << device << endl;
     }
     EngineInfo ef;
     nvinfer1::ICudaEngine *engine;
@@ -337,19 +348,23 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
     }
     else
     {
-        context = SampleUniquePtr<nvinfer1::IExecutionContext>(ctx);
+        context = nullptr;
         if (eInfo == nullptr)
         {
             gLogError << __CXX_PREFIX << "Compute with given context but without engine info, exiting..." << endl;
             return -1;
         }
-        memcpy(&ef, eInfo, sizeof(EngineInfo));
+        ef = *eInfo;
+        engine = ef.engine.get();
     }
 
     // 为Engine分配执行显存
     uint64_t execute_memory_size = engine->getDeviceMemorySize();
     void *execution_memory = allocator->allocate(execute_memory_size, alignment, 0);
-    context->setDeviceMemory(execution_memory);
+    if (ctx == nullptr)
+        context->setDeviceMemory(execution_memory);
+    else
+        ctx->setDeviceMemory(execution_memory);
 
     // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
     int input_num = ef.InputName.size();
@@ -430,7 +445,10 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
 
     // 将模型计算任务加入到CUDA流
     bool status;
-    status = context->enqueue(1, buffers.get(), stream, nullptr);
+    if (ctx == nullptr)
+        status = context->enqueue(1, buffers.get(), stream, nullptr);
+    else
+        status = ctx->enqueue(1, buffers.get(), stream, nullptr);
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!" << endl;
