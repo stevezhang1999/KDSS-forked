@@ -264,6 +264,15 @@ int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<c
 int ComputationWorker::Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
 {
     // 使用默认分配器kg_allocator
+    int device;
+    int result;
+    check_cuda_success(cudaGetDevice(&device), result);
+    if (result != 0)
+    {
+        gLogError << "Can not get current executing device, compute aborted." << endl;
+        return -1;
+    }
+    gLogInfo << "Compute on device " << device << endl;
     return this->Compute(model_name, input, output, kg_allocator.get());
 }
 
@@ -467,6 +476,15 @@ int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std
 
 int ComputationWorker::ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output)
 {
+    int device;
+    int result;
+    check_cuda_success(cudaGetDevice(&device), result);
+    if (result != 0)
+    {
+        gLogError << "Can not get current executing device, compute aborted." << endl;
+        return -1;
+    }
+    gLogInfo << "Compute on device " << device << endl;
     return this->ComputeWithStream(model_name, input, output, kg_allocator.get());
 }
 
