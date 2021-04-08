@@ -103,15 +103,7 @@ public:
     //!
     //! If an allocation request cannot be satisfied, nullptr should be returned.
     //!
-    void *allocate(uint64_t size, uint64_t alignment, uint32_t flags)
-    {
-        void *d_ptr;
-        int result;
-        check_cuda_success(cudaMalloc(&d_ptr, size), result);
-        if (!result)
-            return nullptr;
-        return d_ptr;
-    }
+    void *allocate(uint64_t size, uint64_t alignment, uint32_t flags);
 
     //!
     //! A callback implemented by the application to handle release of GPU memory.
@@ -120,11 +112,7 @@ public:
     //!
     //! \param memory The acquired memory.
     //!
-    void free(void *memory)
-    {
-        int result;
-        check_cuda_success(cudaFree(memory), result);
-    }
+    void free(void *memory);
 
     virtual ~DefaultAllocator();
 };

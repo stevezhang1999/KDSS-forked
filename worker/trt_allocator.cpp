@@ -128,4 +128,32 @@ KGErrCode KGAllocator::destroy()
     }
     return KGMALLOC_SUCCESS;
 }
+
+DefaultAllocator::DefaultAllocator()
+{
+    // do nothing
+}
+
+void *DefaultAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
+{
+    void *d_ptr = nullptr;
+    int result;
+    check_cuda_success(cudaMalloc(&d_ptr, size), result);
+    if (result == -1)
+        return nullptr;
+    return d_ptr;
+}
+
+void DefaultAllocator::free(void *memory)
+{
+    int result;
+    check_cuda_success(cudaFree(memory), result);
+}
+
+DefaultAllocator::~DefaultAllocator()
+{
+    int result;
+    check_cuda_success(cudaDeviceSynchronize(), result);
+}
+
 // end of trt_allocator.cpp
