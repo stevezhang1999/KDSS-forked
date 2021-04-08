@@ -17,9 +17,8 @@ using std::endl;
 using std::ostringstream;
 using std::string;
 
-// kg_allocator - 全局唯一allocator
-std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator = nullptr;
-// std::shared_ptr<nvinfer1::IGpuAllocator> kg_allocator = nullptr;
+// global_allocator - 全局唯一allocator
+std::shared_ptr<nvinfer1::IGpuAllocator> global_allocator = nullptr;
 
 // KGAllocator 执行底层kgmalloc初始化的构造函数
 KGAllocator::KGAllocator()
@@ -109,7 +108,7 @@ void KGAllocator::free(void *memory)
     return;
 }
 
-// do not release kg_allocator after main()
+// do not release global_allocator after main()
 // call destroy() before return 0;
 KGAllocator::~KGAllocator()
 {
@@ -117,14 +116,14 @@ KGAllocator::~KGAllocator()
 
 KGErrCode KGAllocator::destroy()
 {
-    // destroy kg_allocator
-    if (kg_allocator != nullptr)
+    // destroy global_allocator
+    if (global_allocator != nullptr && dynamic_cast<KGAllocator *>(global_allocator.get()) != nullptr)
     {
         KGErrCode err = KGDestroy();
         if (err != KGMALLOC_SUCCESS)
             gLogError << __CXX_PREFIX << "recycle kgmalloc memory failed, err: " << err << endl;
         gLogInfo << "Memory pool destroyed." << endl;
-        kg_allocator = nullptr;
+        global_allocator = nullptr;
     }
     return KGMALLOC_SUCCESS;
 }
@@ -152,8 +151,6 @@ void DefaultAllocator::free(void *memory)
 
 DefaultAllocator::~DefaultAllocator()
 {
-    int result;
-    check_cuda_success(cudaDeviceSynchronize(), result);
 }
 
 // end of trt_allocator.cpp

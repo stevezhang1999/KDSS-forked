@@ -6,22 +6,50 @@
 #include <exception>
 #include <NvInfer.h>
 
+using namespace nvinfer1;
+
 class ComputationWorker final : public IWorker
 {
 public:
     ComputationWorker();
     virtual ~ComputationWorker() {}
-    virtual int Load(std::string model_name, std::string model_file, std::string file_path, ModelType type)
-    {
-        throw "Load method not supported.";
-        return 0;
-    }
 
-    virtual int Unload(std::string model_name)
-    {
-        throw "Unload method not supported.";
-        return 0;
-    }
+    // LoadModel 加载模型到显存中
+    //
+    // ComputationWorker 并不负责这些工作，会直接throw
+    // \param model_name 模型名称，该名称需要与目前已被加载的模型均不同，是一个唯一标识模型的名称
+    // \param model_file 模型文件，为ONNX文件
+    // \param file_path 模型文件的路径
+    // \param type 输入流代表的实际类型
+    // \returns 该模型在全局的唯一索引，如果导入不成功，将会返回-1，并在logger中输出错误信息
+    virtual int LoadModel(std::string model_name, std::string model_file, std::string file_path, ModelType type);
+
+    // UnLoadModel 从显存中卸载模型
+    //
+    // ComputationWorker 并不负责这些工作，会直接throw
+    // \param model_name 模型名称，该名称是在LoadModel时指定的。
+    // \returns 如果卸载不成功或模型不存在，将会返回-1，并在logger中输出错误信息
+    virtual int UnloadModel(std::string model_name);
+
+    // TransferInput 将输入从内存转移到显存，并申请对应的显存
+    //
+    // ComputationWorker 并不负责这些工作，会直接throw
+    // \param model_name 该输入对应的模型名称
+    // \param input_data 输入的字节流载荷
+    // \param input_ptr 该输入对应的显存地址数组指针
+    // \param allocator 转移到显存时需要用的分配器
+    // \returns 执行成功则返回0，否则返回一个非0的数。
+    virtual int TransferInput(std::string model_name, const std::vector<std::vector<char>> input_data, void **(&input_ptr), nvinfer1::IGpuAllocator *allocator);
+
+    // TransferOutput 将输出从显存转移到内存，并释放对应的显存
+    //
+    // ComputationWorker 并不负责这些工作，会直接throw
+    // \param model_name 该输出对应的模型名称
+    // \param output_ptr 该输出对应的显存地址数组指针
+    // \param output_data 输出的字节流载荷
+    // \param allocator 分配时用的allocator，必须是Compute使用的allocator
+    // \returns 执行成功则返回0，否则返回一个非0的数。
+    virtual int TransferOutput(std::string model_name, void **output_ptr, std::vector<std::vector<char>> &output_data, nvinfer1::IGpuAllocator *allocator);
 
     // GetModelName 获得指定索引的模型的名称
     // \param index 模型在全局的唯一索引
@@ -29,55 +57,40 @@ public:
     virtual std::string GetModelName(int index) const;
 
     // Compute 开始根据模型执行计算。
+    // \param model_name 需要调用的模型的名称
+    // \param input 输入对应的显存数组指针
+    // \param output 输出对应的显存指针数组的引用
+    // \returns 执行成功则返回0，否则返回一个非0的数。
+    virtual int Compute(std::string model_name, void **input, void **(&output));
+
+    // Compute 开始根据模型执行计算。
     // 此过程会根据模型引擎创建上下文，使用allocator分配输入/输出显存及运行时显存，
     // 并在退出时将其全部销毁。
     // \param model_name 需要调用的模型的名称
-    // \param input 载有数据载荷的vector
-    // \param output 将会被写入输出数据的vector
-    // \param allocator 分配内存使用的allocator
+    // \param input 输入对应的显存数组指针
+    // \param output 输出对应的显存指针数组的引用
+    // \param allocator 分配显存使用的allocator
     // \param ctx 执行需要用的上下文。如果ctx为nullptr，则从引擎表获取引擎构建上下文。当ctx不为nullptr时，model_name无效。
     // \param eInfo 使用给定上下文执行时需要自带的EngineInfo信息，当ctx为nullptr时，该值将被忽略。
-    int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
+    // \returns 执行成功则返回0，否则返回一个非0的数。
+    int Compute(std::string model_name, void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
 
-    // Compute 根据模型使用kg_allocator执行计算。
+    // ComputeWithStream 使用CUDA stream+global_allocator进行overlapped异步计算
     // \param model_name 需要调用的模型的名称
-    // \param input 载有数据载荷的vector
-    // \param output 将会被写入输出数据的vector
-    virtual int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output);
+    // \param input 输入对应的显存数组指针
+    // \param output 输出对应的显存指针数组的引用
+    // \returns 执行成功则返回0，否则返回一个非0的数。
+    int ComputeWithStream(std::string model_name, void **input, void **(&output));
 
     // ComputeWithStream 使用CUDA stream+自定义分配器进行overlapped异步计算
     // \param model_name 需要调用的模型的名称
-    // \param input 载有数据载荷的vector
-    // \param output 将会被写入输出数据的vector
+    // \param input 输入对应的显存数组指针
+    // \param output 输出对应的显存指针数组的引用
     // \param allocator 用于分配显存的分配器
     // \param ctx 执行需要用的上下文。如果ctx为nullptr，则从引擎表获取引擎构建上下文。当ctx不为nullptr时，model_name无效。
     // \param eInfo 使用给定上下文执行时需要自带的EngineInfo信息，当ctx为nullptr时，该值将被忽略。
-    int ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output, nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
-
-    // ComputeWithStream 使用CUDA stream+kg_allocator进行overlapped异步计算
-    // \param model_name 需要调用的模型的名称
-    // \param input 载有数据载荷的vector
-    // \param output 将会被写入输出数据的vector
-    int ComputeWithStream(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output);
-    
-    // GetModelInputSize 获取指定模型的输入总大小
-    int GetModelInputSize(std::string model_name, int index, uint64_t *result) const;
-
-    // GetModelInputSize 获取指定模型的输入总大小
-    int GetModelInputSize(std::string model_name, std::string input_name, uint64_t *result) const;
-
-    // GetModelOutputSize 获取指定模型的输出总大小
-    int GetModelOutputSize(std::string model_name, int index, uint64_t *result) const;
-
-    // GetModelOutputSize 获取指定模型的输出总大小
-    int GetModelOutputSize(std::string model_name, std::string output_name, uint64_t *result) const;
-
-    // GetModelInfo 获取指定模型的信息
-    int GetModel(std::string model_name, EngineInfo *ef) const;
-
-private:
-    // 获取alignment
-    uint64_t alignment;
+    // \returns 执行成功则返回0，否则返回一个非0的数。
+    int ComputeWithStream(std::string model_name, void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
 };
 
 // end of computation_worker.hpp

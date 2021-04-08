@@ -19,60 +19,60 @@ int Softmax(float *(&input), size_t size);
 
 int main(int argc, char **argv)
 {
-    TransferWorker transfer_worker;
+    ALLOCATOR_TYPE type;
+    string type_string = toLowerCase(argv[1]);
+    if (type_string == "default")
+        type = DEFAULT_ALLOCATOR;
+    else if(type_string == "kgmalloc")
+        type = KGMALLOC_ALLOCATOR;
+    else
+        type = KGMALLOCV2_ALLOCATOR;
+        TransferWorker transfer_worker(type);
     ComputationWorker computation_worker;
 
-    std::ofstream fout_1("compute_time.txt");
-    std::ofstream fout_2("compute_with_stream_time.txt");
-    // std::ofstream fout_3("compute_default_time.txt");
-    if (!fout_1.is_open() || !fout_2.is_open())
-    {
-        gLogError << __CXX_PREFIX << "error." << endl;
-        return -1;
-    }
-
     int loaded;
-    ifstream fin(std::string("/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/") + std::string("resnet_50.tengine"));
+    ifstream fin(std::string("/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/") + std::string("resnet-50.tengine"));
     if (!fin)
     {
-        loaded = transfer_worker.Load("resnet_50", "resnet50-v1-7.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", ONNX_FILE);
+        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", ONNX_FILE);
         if (loaded == -1)
         {
-            gLogFatal << "Loading resnet_50 model into memory failed." << endl;
+            gLogFatal << "Loading resnet-50 model into memory failed." << endl;
             return loaded;
         }
-        gLogInfo << "Loading resnet_50 model into memory successfully." << endl;
-        int saved = transfer_worker.SaveModel("resnet_50", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/");
+        gLogInfo << "Loading resnet-50 model into memory successfully." << endl;
+        int saved = transfer_worker.SaveModel("resnet-50", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", "resnet-50.tengine");
         if (saved != 0)
         {
-            gLogFatal << "Saving resnet_50 model into disk failed." << endl;
+            gLogFatal << "Saving resnet-50 model into disk failed." << endl;
             return saved;
         }
-        gLogInfo << "Saving resnet_50 model into disk successfully." << endl;
+        gLogInfo << "Saving resnet-50 model into disk successfully." << endl;
     }
     else
     {
         fin.close();
-        loaded = transfer_worker.LoadFromEngineFile("resnet_50", "resnet_50.tengine", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", vector<string>{"data"}, vector<string>{"resnetv17_dense0_fwd"});
+        loaded = transfer_worker.LoadFromEngineFile("resnet-50", "resnet-50.tengine", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", vector<string>{"data"}, vector<string>{"resnetv17_dense0_fwd"});
         if (loaded == -1)
         {
-            gLogFatal << "Loading resnet_50 model into memory failed." << endl;
+            gLogFatal << "Loading resnet-50 model into memory failed." << endl;
             return loaded;
         }
     }
 
     EngineInfo ef;
-    int got = computation_worker.GetModel("resnet_50", &ef);
+    int got = GetModel("resnet-50", &ef);
     if (got != 0)
     {
-        gLogFatal << "Loading resnet_50 model from memory failed." << endl;
+        gLogFatal << "Loading resnet-50 model from memory failed." << endl;
         return got;
     }
+
     gLogInfo << "ResNet-50 input:" << endl;
     for (int i = 0; i < ef.InputName.size(); i++)
     {
         uint64_t size;
-        computation_worker.GetModelInputSize("resnet_50", ef.InputName.at(i), &size);
+        GetModelInputSize("resnet-50", ef.InputName.at(i), &size);
         gLogInfo
             << ef.InputName.at(i) << " Dims: " << ef.InputDim.at(i) << " Size: " << size
             << " bytes" << endl;
@@ -81,13 +81,13 @@ int main(int argc, char **argv)
     for (int i = 0; i < ef.OutputName.size(); i++)
     {
         uint64_t size;
-        computation_worker.GetModelOutputSize("resnet_50", ef.OutputName.at(i), &size);
+        GetModelOutputSize("resnet-50", ef.OutputName.at(i), &size);
         gLogInfo << ef.OutputName.at(i) << " Dims: " << ef.OutputDim.at(i) << " Size: " << size
                  << " bytes" << endl;
     }
 
     uint64_t input_size;
-    if (computation_worker.GetModelInputSize("resnet_50", 0, &input_size) != 0)
+    if (GetModelInputSize("resnet-50", 0, &input_size) != 0)
     {
         gLogError << "Can not get model input size of 0." << endl;
         return -1;
@@ -102,10 +102,10 @@ int main(int argc, char **argv)
     }
     else
     {
-        execution_time = std::atoi(argv[1]);
+        execution_time = std::atoi(argv[2]);
         if (execution_time == 0)
         {
-            gLogError << __CXX_PREFIX << "Execution times param error, usage: [program] <execution-time>" << endl;
+            gLogError << __CXX_PREFIX << "Execution times param error, usage: [program] <allocator> <execution-time>" << endl;
             gLogInfo << "setting 2000 times." << endl;
             execution_time = 2000;
         }
@@ -121,16 +121,49 @@ int main(int argc, char **argv)
     }
     gLogInfo << "Read category for ResNet-50 done." << endl;
 
-    std::vector<std::vector<char>> input;
-    std::vector<std::vector<char>> h_output;
+    unique_ptr<void *> d_input(new void *[ef.InputName.size()]);
+    unique_ptr<void *> d_output(new void *[ef.OutputName.size()]);
+
+    if (!d_input || !d_output)
+    {
+        gLogError << __CXX_PREFIX << "Allocate host memory for resnet-50 input and output failed."
+                  << endl;
+        return -1;
+    }
+
+    std::vector<std::vector<char>> input_data;
+    std::vector<std::vector<char>> output_data;
+
+    // 申请device端output空间
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        uint64_t size;
+        int executed = GetModelOutputSize("resnet-50", i, &size);
+        if (executed != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not get resnet-50 output size"
+                      << endl;
+            return -1;
+        }
+        d_output.get()[i] = global_allocator->allocate(size, alignment, 0);
+        if (!d_output.get()[i])
+        {
+            // 释放从0~i-1的所有显存
+            for (int j = 0; j < i; j++)
+                global_allocator->free(d_output.get()[j]);
+            gLogError << __CXX_PREFIX << "allocating for device memory failed."
+                      << endl;
+            return -1;
+        }
+    }
 
     // 输入预处理
     // ResNet-50的输入为图片，所以需要引入opencv
     const string prefix = "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/";
     for (auto pic : {"tabby_tiger_cat.jpg", "cat/cat_1.jpg", "cat/cat_2.jpg"})
     {
-        input.clear();
-        h_output.clear();
+        input_data.clear();
+        output_data.clear();
         Mat img = imread(prefix + pic);
         if (img.empty())
         {
@@ -146,29 +179,58 @@ int main(int argc, char **argv)
 
         char *input_0 = new char[input_size];
         ProcessBGRImage(img, ef.InputDim[0], input_0);
-        preProcessHostInput(input, input_0, 3 * 224 * 224, nvinfer1::DataType::kFLOAT);
+        preProcessHostInput(input_data, input_0, 3 * 224 * 224, nvinfer1::DataType::kFLOAT);
         delete[] input_0;
 
+        // 处理host端input
+        // 暂时解除智能指针的托管
+        auto d_input_ptr = d_input.release();
+        int executed = transfer_worker.TransferInput("resnet-50", input_data, d_input_ptr, global_allocator.get());
+        // 恢复
+        d_input.reset(d_input_ptr);
+        if (executed != 0)
+        {
+            gLogError << __CXX_PREFIX << "Invaild input, exit..."
+                      << endl;
+            return -1;
+        }
+
         // Cold start
-        execution = computation_worker.Compute("resnet_50", input, h_output);
+        // 暂时解除智能指针的托管
+        auto d_output_ptr = d_output.release();
+        executed = computation_worker.Compute("resnet-50", d_input.get(), d_output_ptr);
+        // 恢复
+        d_output.reset(d_output_ptr);
         if (execution != 0)
         {
             gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
             MemPoolInfo();
             throw "";
         }
-
-        uint64_t OutputDim = 0;
-        int executed = computation_worker.GetModelOutputSize("resnet_50", 0, &OutputDim);
+        executed = transfer_worker.TransferOutput("resnet-50", d_output.get(), output_data, global_allocator.get());
         if (executed != 0)
         {
-            gLogError << __CXX_PREFIX << "Cannot get output size of output[0]" << endl;
+            gLogError << __CXX_PREFIX << "Invaild output, exit..."
+                      << endl;
             return -1;
         }
-        float *output = (float *)new char[OutputDim];
-        preProcessHostOutput(h_output, 0, (void **)&output, 1000, nvinfer1::DataType::kFLOAT);
+        float *output = (float *)new char[output_data[0].size()];
+        if (!output)
+        {
+            gLogError << __CXX_PREFIX << "Can not allocate memory for output data." << endl;
+            return -1;
+        }
+        memcpy(output, output_data[0].data(), output_data[0].size());
         // 走一轮softmax
         {
+            uint64_t OutputDim = 0;
+            int executed = GetModelOutputSize("resnet-50", 0, &OutputDim);
+            if (executed)
+            {
+                gLogError << __CXX_PREFIX << "Cannot get output size of output[0]"
+                          << endl;
+                return -1;
+            }
             OutputDim /= sizeof(float);
             Softmax(output, OutputDim);
             vector<std::pair<float, string>> prob;
@@ -197,38 +259,89 @@ int main(int argc, char **argv)
         delete[] output;
     }
 
-    for (int i = 1; i <= execution_time; i++)
+    // 性能测试开始
+    std::ofstream fout[2];
+    const string file_name[] = {"compute_time.txt",
+                                "compute_with_stream_time.txt"};
+    for (int i = 0; i < 2; i++)
     {
-        _CXX_MEASURE_TIME(execution = computation_worker.Compute("resnet_50", input, h_output), fout_1);
-        h_output.clear();
-        if (execution != 0)
+        auto name = file_name[i];
+        switch (type)
         {
-            gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            MemPoolInfo();
-            throw "";
+        case DEFAULT_ALLOCATOR:
+            name = "default_allocator_" + name;
+            break;
+        case KGMALLOC_ALLOCATOR:
+            name = "kgmalloc_allocator_" + name;
+            break;
+        case KGMALLOCV2_ALLOCATOR:
+            name = "kgmallocv2_allocator_" + name;
+            break;
+        default:
+            break;
         }
-
-        // _CXX_MEASURE_TIME(execution = computation_worker.Compute("resnet_50_default", input, h_output), fout_3);
-        // h_output.clear();
-        // if (execution != 0)
-        // {
-        //     gLogFatal << "Model execution failed, current memory pool info: " << endl;
-        //     MemPoolInfo();
-        //     throw "";
-        // }
-
-        _CXX_MEASURE_TIME(execution = computation_worker.ComputeWithStream("resnet_50", input, h_output), fout_2);
-        h_output.clear();
-        if (execution != 0)
+        fout[i].open(name);
+        if (!fout[i].is_open())
         {
-            gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            MemPoolInfo();
-            throw "";
+            gLogError << __CXX_PREFIX << "error."
+                      << endl;
+            return -1;
         }
     }
-    fout_1.close();
-    fout_2.close();
-    // fout_3.close();
+
+    // 创建上下文
+    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
+        ctx1(ef.engine->createExecutionContextWithoutDeviceMemory());
+    if (!ctx1)
+    {
+        gLogFatal << __CXX_PREFIX << "Can not create execution context of ResNet-50" << endl;
+        return -1;
+    }
+
+    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
+    if (!ctx2)
+    {
+        gLogFatal << __CXX_PREFIX << "Can not create execution context of ResNet-50" << endl;
+        return -1;
+    }
+
+    int executed = 0;
+    for (int i = 1; i <= execution_time; i++)
+    {
+        if (i % 100 == 0)
+        {
+            gLogInfo << "Test " << i << " times" << endl;
+        }
+
+        // 暂时解除智能指针的托管
+        auto d_output_ptr = d_output.release();
+        _CXX_MEASURE_TIME(executed = computation_worker.Compute("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+        if (execution != 0)
+        {
+            gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
+            MemPoolInfo();
+            throw "";
+        }
+        output_data.clear();
+        // 恢复
+        d_output.reset(d_output_ptr);
+
+        // 暂时解除智能指针的托管
+        d_output_ptr = d_output.release();
+        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
+        if (execution != 0)
+        {
+            gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
+            MemPoolInfo();
+            throw "";
+        }
+        output_data.clear();
+        // 恢复
+        d_output.reset(d_output_ptr);
+    }
+    for (int i = 0; i < 2; i++)
+        fout[i].close();
+
     return 0;
 }
 
