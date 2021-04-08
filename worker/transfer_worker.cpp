@@ -35,6 +35,7 @@ TransferWorker::~TransferWorker()
         engine_table.erase(name);
     }
     et_rw_mu.unlock();
+    KGAllocator::destroy();
 }
 
 bool constructNetwork(SampleUniquePtr<nvinfer1::IBuilder> &builder,
