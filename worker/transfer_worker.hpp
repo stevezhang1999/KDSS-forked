@@ -13,7 +13,8 @@ class TransferWorker final : public IWorker
 public:
     TransferWorker()
     {
-        kg_allocator.reset(new KGAllocator());
+        if (kg_allocator == nullptr)
+            kg_allocator.reset(new KGAllocator());
     };
     virtual ~TransferWorker();
 
@@ -46,10 +47,17 @@ public:
     int SaveModel(std::string model_name, std::string model_path, std::string file_name = "");
 
     virtual std::string GetModelName(int index) const;
+
     // Compute 开始根据模型执行计算
     // \param model_name 需要调用的模型的名称
     // \param input 载有数据载荷的vector
     virtual int Compute(std::string model_name, std::vector<std::vector<char>> &input, std::vector<std::vector<char>> &output);
+
+    // destroy 销毁底层分配器，其他的清理工作由析构函数完成
+    inline KGErrCode destroy()
+    {
+        return KGAllocator::destroy();
+    }
 };
 
 // preProcessHostInput 对已经写好数据的input转移到vector中

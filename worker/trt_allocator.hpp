@@ -65,6 +65,8 @@ public:
         return chunk_size;
     }
 
+    static KGErrCode destroy();
+
 private:
     // node_pool 建立从d_ptr到node_ptr的地址的连接
     std::unordered_map<void *, void *> node_pool;

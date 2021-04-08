@@ -109,13 +109,23 @@ void KGAllocator::free(void *memory)
     return;
 }
 
+// do not release kg_allocator after main()
+// call destroy() before return 0;
 KGAllocator::~KGAllocator()
 {
-    KGErrCode err = KGDestroy();
-    if (err != KGMALLOC_SUCCESS)
-        gLogError << __CXX_PREFIX << "recycle kgmalloc memory failed, err: " << err << endl;
-    gLogInfo << "Memory pool destroyed." << endl;
-    return;
 }
 
+KGErrCode KGAllocator::destroy()
+{
+    // destroy kg_allocator
+    if (kg_allocator != nullptr)
+    {
+        KGErrCode err = KGDestroy();
+        if (err != KGMALLOC_SUCCESS)
+            gLogError << __CXX_PREFIX << "recycle kgmalloc memory failed, err: " << err << endl;
+        gLogInfo << "Memory pool destroyed." << endl;
+        kg_allocator = nullptr;
+    }
+    return KGMALLOC_SUCCESS;
+}
 // end of trt_allocator.cpp
