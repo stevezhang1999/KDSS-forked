@@ -22,6 +22,15 @@ int main(int argc, char **argv)
     TransferWorker transfer_worker;
     ComputationWorker computation_worker;
 
+    std::ofstream fout_1("compute_time.txt");
+    std::ofstream fout_2("compute_with_stream_time.txt");
+    // std::ofstream fout_3("compute_default_time.txt");
+    if (!fout_1.is_open() || !fout_2.is_open())
+    {
+        gLogError << __CXX_PREFIX << "error." << endl;
+        return -1;
+    }
+
     int loaded;
     ifstream fin(std::string("/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/") + std::string("resnet_50.tengine"));
     if (!fin)
@@ -63,7 +72,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < ef.InputName.size(); i++)
     {
         uint64_t size;
-        computation_worker.GetModelInputDim("resnet_50", ef.InputName.at(i), &size);
+        computation_worker.GetModelInputSize("resnet_50", ef.InputName.at(i), &size);
         gLogInfo
             << ef.InputName.at(i) << " Dims: " << ef.InputDim.at(i) << " Size: " << size
             << " bytes" << endl;
@@ -72,54 +81,15 @@ int main(int argc, char **argv)
     for (int i = 0; i < ef.OutputName.size(); i++)
     {
         uint64_t size;
-        computation_worker.GetModelOutputDim("resnet_50", ef.OutputName.at(i), &size);
+        computation_worker.GetModelOutputSize("resnet_50", ef.OutputName.at(i), &size);
         gLogInfo << ef.OutputName.at(i) << " Dims: " << ef.OutputDim.at(i) << " Size: " << size
                  << " bytes" << endl;
     }
 
-    // 先读取类目表
-    vector<string> cat;
-    int read = readCategory("synset.txt", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", cat);
-    if (read != 0 || cat.size() != 1000)
-    {
-        gLogFatal << "Can not read category for ResNet-50, exiting..." << endl;
-        return -1;
-    }
-    gLogInfo << "Read category for ResNet-50 done." << endl;
-    // 输入预处理
-    // ResNet-50的输入为图片，所以需要引入opencv
-    Mat img = imread("/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/tabby_tiger_cat.jpg");
-    if (img.empty())
-    {
-        gLogFatal << "Cannot read input image." << endl;
-        return -1;
-    }
-    if (img.channels() != 3)
-    {
-        gLogFatal << "Read image, but not 3 channels image." << endl;
-        return -1;
-    }
-    resize(img, img, Size(224, 224));
-    std::vector<std::vector<char>> input;
-    std::vector<std::vector<char>> h_output;
-
     uint64_t input_size;
-    if (computation_worker.GetModelInputDim("resnet_50", 0, &input_size) != 0)
+    if (computation_worker.GetModelInputSize("resnet_50", 0, &input_size) != 0)
     {
         gLogError << "Can not get model input size of 0." << endl;
-        return -1;
-    }
-    char *input_0 = new char[input_size];
-    ProcessBGRImage(img, ef.InputDim[0], input_0);
-    preProcessHostInput(input, input_0, 3 * 224 * 224, nvinfer1::DataType::kFLOAT);
-    delete[] input_0;
-
-    std::ofstream fout_1("compute_time.txt");
-    std::ofstream fout_2("compute_with_stream_time.txt");
-    // std::ofstream fout_3("compute_default_time.txt");
-    if (!fout_1.is_open() || !fout_2.is_open())
-    {
-        gLogError << __CXX_PREFIX << "error." << endl;
         return -1;
     }
 
@@ -141,55 +111,91 @@ int main(int argc, char **argv)
         }
     }
 
-    // Cold start
-    execution = computation_worker.Compute("resnet_50", input, h_output), fout_1;
-    if (execution != 0)
+    // 先读取类目表
+    vector<string> cat;
+    int read = readCategory("synset.txt", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", cat);
+    if (read != 0 || cat.size() != 1000)
     {
-        gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-        MemPoolInfo();
-        throw "";
-    }
-
-    uint64_t OutputDim = 0;
-    int executed = computation_worker.GetModelOutputDim("resnet_50", 0, &OutputDim);
-    if (executed != 0)
-    {
-        gLogError << __CXX_PREFIX << "Cannot get output size of output[0]" << endl;
+        gLogFatal << "Can not read category for ResNet-50, exiting..." << endl;
         return -1;
     }
-    float *output = (float *)new char[OutputDim];
-    preProcessHostOutput(h_output, 0, (void **)&output, 1000, nvinfer1::DataType::kFLOAT);
-    // 走一轮softmax
+    gLogInfo << "Read category for ResNet-50 done." << endl;
+
+    std::vector<std::vector<char>> input;
+    std::vector<std::vector<char>> h_output;
+
+    // 输入预处理
+    // ResNet-50的输入为图片，所以需要引入opencv
+    const string prefix = "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/";
+    for (auto pic : {"tabby_tiger_cat.jpg", "cat/cat_1.jpg", "cat/cat_2.jpg"})
     {
-        OutputDim /= sizeof(float);
-        Softmax(output, OutputDim);
-        vector<std::pair<float, string>> prob;
-        // 记录下这些category里面最长的
-        size_t max_length = 0;
-        for (unsigned int i = 0; i < OutputDim; i++)
+        input.clear();
+        h_output.clear();
+        Mat img = imread(prefix + pic);
+        if (img.empty())
         {
-            if (output[i] < 0.01f)
-                continue;
-            // stringstream ss;
-            // ss << std::left << std::setw(50) << cat.at(i) << " : " << std::fixed << std::setprecision(3) << std::left << std::setw(6)
-            //    << output[i] * 100 << "%";
-            prob.push_back(pair<float, string>(output[i], cat.at(i)));
-            if (cat.at(i).length() > max_length)
-                max_length = cat.at(i).length();
+            gLogFatal << "Cannot read input image." << endl;
+            return -1;
         }
-        // 排序prob
-        std::sort(prob.begin(), prob.end(), [](pair<float, string> a, pair<float, string> b) { return a.first > b.first; });
-        gLogInfo << "The detect result is: " << endl;
-        for (auto iter = prob.begin(); iter != prob.end(); ++iter)
+        if (img.channels() != 3)
         {
-            stringstream ss;
-            ss << std::left << std::setw(max_length) << iter->second << " : " << std::fixed << std::setprecision(3) << std::left << std::setw(6) << setfill('0')
-               << iter->first * 100 << "%";
-            cout << ss.str() << endl;
+            gLogFatal << "Read image, but not 3 channels image." << endl;
+            return -1;
         }
+        resize(img, img, Size(224, 224));
+
+        char *input_0 = new char[input_size];
+        ProcessBGRImage(img, ef.InputDim[0], input_0);
+        preProcessHostInput(input, input_0, 3 * 224 * 224, nvinfer1::DataType::kFLOAT);
+        delete[] input_0;
+
+        // Cold start
+        execution = computation_worker.Compute("resnet_50", input, h_output);
+        if (execution != 0)
+        {
+            gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
+            MemPoolInfo();
+            throw "";
+        }
+
+        uint64_t OutputDim = 0;
+        int executed = computation_worker.GetModelOutputSize("resnet_50", 0, &OutputDim);
+        if (executed != 0)
+        {
+            gLogError << __CXX_PREFIX << "Cannot get output size of output[0]" << endl;
+            return -1;
+        }
+        float *output = (float *)new char[OutputDim];
+        preProcessHostOutput(h_output, 0, (void **)&output, 1000, nvinfer1::DataType::kFLOAT);
+        // 走一轮softmax
+        {
+            OutputDim /= sizeof(float);
+            Softmax(output, OutputDim);
+            vector<std::pair<float, string>> prob;
+            // 记录下这些category里面最长的
+            size_t max_length = 0;
+            for (unsigned int i = 0; i < OutputDim; i++)
+            {
+                prob.push_back(pair<float, string>(output[i], cat.at(i)));
+                if (cat.at(i).length() > max_length)
+                    max_length = cat.at(i).length();
+            }
+            // 排序prob
+            std::sort(prob.begin(), prob.end(), [](pair<float, string> a, pair<float, string> b) { return a.first > b.first; });
+            gLogInfo << "For pic: " << pic << endl;
+            gLogInfo << "The detect result TOP-5 is: " << endl;
+            // 输出前五个
+            for (auto iter = prob.begin(); iter != prob.end() && iter != prob.begin() + 5; ++iter)
+            {
+                stringstream ss;
+                ss << std::left << std::setw(max_length) << iter->second << " : " << std::fixed << std::setprecision(3) << std::left << std::setw(6) << setfill('0')
+                   << iter->first * 100 << "%";
+                cout << ss.str() << endl;
+            }
+        }
+        gLogInfo << "Detect finished." << endl;
+        delete[] output;
     }
-    gLogInfo << "Detect finished." << endl;
-    delete[] output;
 
     for (int i = 1; i <= execution_time; i++)
     {
