@@ -59,7 +59,7 @@ LIBS += $(KGMALLOC_LIBS)
 
 CFLAGS := -g -std=c++11 -Wno-deprecated-declarations -I$(INCLUDE_DIR) -L$(LIB_DIR) $(CUDA_LIBS) $(TRT_LIBS) $(LIBS) -m64
 
-# CFLAGS += D__DEBUG
+# CFLAGS += -D__DEBUG
 
 ifneq ($(ARCH), $(LINUX))
 	CFLAGS += -fexec-charset=GBK -finput-charset=UTF-8

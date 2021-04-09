@@ -3,11 +3,9 @@ CC := gcc
 
 TRT_PATH := /home/lijiakang/TensorRT-6.0.1.5
 KGMALLOC_PATH := /home/lijiakang/kgmalloc
-OPENCV_PATH := /usr/local
 
 CUDA_INCLUDE_DIR := /usr/local/cuda/include
 TRT_INCLUDE_DIR := $(TRT_PATH)/include
-OPENCV_INCLUDE_DIR := $(OPENCV_PATH)/include
 
 HASH_INCLUDE_DIR := $(KGMALLOC_PATH)/hash
 TRT_SAMPLE_INCLUDE_DIR := $(TRT_PATH)/samples
@@ -15,7 +13,6 @@ TRT_SAMPLE_INCLUDE_DIR := $(TRT_PATH)/samples
 CUDA_LIB_DIR := /usr/local/cuda/lib64
 TRT_LIB_DIR := $(TRT_PATH)/lib
 KGMALLOC_LIB_DIR := $(KGMALLOC_PATH)/lib
-OPENCV_LIB_DIR := $(OPENCV_PATH)/lib64
 
 
 INCLUDE_DIR := $(CUDA_INCLUDE_DIR)
@@ -23,23 +20,19 @@ INCLUDE_DIR += -I$(TRT_INCLUDE_DIR)
 INCLUDE_DIR += -I$(KGMALLOC_PATH)
 INCLUDE_DIR += -I$(HASH_INCLUDE_DIR)
 INCLUDE_DIR += -I$(TRT_SAMPLE_INCLUDE_DIR)
-INCLUDE_DIR += -I$(OPENCV_INCLUDE_DIR)
 INCLUDE_DIR += -I../../
 
 LIB_DIR := $(CUDA_LIB_DIR)
 LIB_DIR += -L$(TRT_LIB_DIR)
 LIB_DIR += -L$(KGMALLOC_LIB_DIR)
-LIB_DIR += -L$(OPENCV_LIB_DIR)
 
 CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand
 TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
 KGMALLOC_LIBS := -lumap -lhash
-OPENCV_LIBS := -lopencv_core -lopencv_imgcodecs -lopencv_imgproc
 LIBS := -lrt -ldl -lpthread
 LIBS += $(KGMALLOC_LIBS)
 LIBS += $(CUDA_LIBS)
 LIBS += $(TRT_LIBS)
-LIBS += $(OPENCV_LIBS)
 
 CFLAGS := -g -std=c++11 -Wno-deprecated-declarations -I$(INCLUDE_DIR) -L$(LIB_DIR) $(LIBS)
 

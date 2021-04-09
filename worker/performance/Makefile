@@ -1,4 +1,4 @@
-DIRS = *_compute_performance load_performance
+DIRS = *_compute_performance
 
 .PHONY:all clean $(DIRS)
 
