@@ -11,6 +11,11 @@ using namespace std;
 
 int main(int argc, char **argv)
 {
+    if (argc == 1)
+    {
+        cout << "Usage: ./main <allocator_name> [execution_times]" << endl;
+        return -1;
+    }
     ALLOCATOR_TYPE type;
     string type_string = argv[1];
     transform(type_string.begin(), type_string.end(), type_string.begin(), ::tolower);
@@ -34,7 +39,7 @@ int main(int argc, char **argv)
 
     int execution = 0;
     int execution_time = 0;
-    if (argc < 2)
+    if (argc < 3)
     {
         gLogInfo << "Not found execution param, setting 2000 times."
                  << endl;
@@ -71,6 +76,9 @@ int main(int argc, char **argv)
                   << endl;
         return -1;
     }
+
+    memset(d_input.get(), 0, sizeof(void *) * ef.InputName.size());
+    memset(d_output.get(), 0, sizeof(void *) * ef.OutputName.size());
 
     std::vector<uint8_t> fileData(28 * 28 * sizeof(float));
     // int mNumber = rand() % 10;

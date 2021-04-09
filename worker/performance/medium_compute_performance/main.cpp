@@ -19,15 +19,20 @@ int Softmax(float *(&input), size_t size);
 
 int main(int argc, char **argv)
 {
+    if (argc == 1)
+    {
+        cout << "Usage: ./main <allocator_name> [execution_times]" << endl;
+        return -1;
+    }
     ALLOCATOR_TYPE type;
     string type_string = toLowerCase(argv[1]);
     if (type_string == "default")
         type = DEFAULT_ALLOCATOR;
-    else if(type_string == "kgmalloc")
+    else if (type_string == "kgmalloc")
         type = KGMALLOC_ALLOCATOR;
     else
         type = KGMALLOCV2_ALLOCATOR;
-        TransferWorker transfer_worker(type);
+    TransferWorker transfer_worker(type);
     ComputationWorker computation_worker;
 
     int loaded;
@@ -95,7 +100,7 @@ int main(int argc, char **argv)
 
     int execution = 0;
     int execution_time = 0;
-    if (argc < 2)
+    if (argc < 3)
     {
         gLogInfo << "Not found execution param, setting 2000 times." << endl;
         execution_time = 2000;
@@ -124,44 +129,48 @@ int main(int argc, char **argv)
     unique_ptr<void *> d_input(new void *[ef.InputName.size()]);
     unique_ptr<void *> d_output(new void *[ef.OutputName.size()]);
 
+
     if (!d_input || !d_output)
     {
         gLogError << __CXX_PREFIX << "Allocate host memory for resnet-50 input and output failed."
                   << endl;
         return -1;
     }
+    
+    memset(d_input.get(), 0, sizeof(void *) * ef.InputName.size());
+    memset(d_output.get(), 0, sizeof(void *) * ef.OutputName.size());
 
     std::vector<std::vector<char>> input_data;
     std::vector<std::vector<char>> output_data;
-
-    // 申请device端output空间
-    for (int i = 0; i < ef.OutputName.size(); i++)
-    {
-        uint64_t size;
-        int executed = GetModelOutputSize("resnet-50", i, &size);
-        if (executed != 0)
-        {
-            gLogError << __CXX_PREFIX << "Can not get resnet-50 output size"
-                      << endl;
-            return -1;
-        }
-        d_output.get()[i] = global_allocator->allocate(size, alignment, 0);
-        if (!d_output.get()[i])
-        {
-            // 释放从0~i-1的所有显存
-            for (int j = 0; j < i; j++)
-                global_allocator->free(d_output.get()[j]);
-            gLogError << __CXX_PREFIX << "allocating for device memory failed."
-                      << endl;
-            return -1;
-        }
-    }
 
     // 输入预处理
     // ResNet-50的输入为图片，所以需要引入opencv
     const string prefix = "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/";
     for (auto pic : {"tabby_tiger_cat.jpg", "cat/cat_1.jpg", "cat/cat_2.jpg"})
     {
+        // 申请device端output空间，该空间会在TransferOutput时被释放掉
+        for (int i = 0; i < ef.OutputName.size(); i++)
+        {
+            uint64_t size;
+            int executed = GetModelOutputSize("resnet-50", i, &size);
+            if (executed != 0)
+            {
+                gLogError << __CXX_PREFIX << "Can not get resnet-50 output size"
+                          << endl;
+                return -1;
+            }
+            d_output.get()[i] = global_allocator->allocate(size, alignment, 0);
+            if (!d_output.get()[i])
+            {
+                // 释放从0~i-1的所有显存
+                for (int j = 0; j < i; j++)
+                    global_allocator->free(d_output.get()[j]);
+                gLogError << __CXX_PREFIX << "allocating for device memory failed."
+                          << endl;
+                return -1;
+            }
+        }
+        global_allocator->free(d_input.get()[0]);
         input_data.clear();
         output_data.clear();
         Mat img = imread(prefix + pic);
@@ -259,6 +268,7 @@ int main(int argc, char **argv)
         delete[] output;
     }
 
+    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
     // 性能测试开始
     std::ofstream fout[2];
     const string file_name[] = {"compute_time.txt",
