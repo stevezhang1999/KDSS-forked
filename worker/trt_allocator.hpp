@@ -168,6 +168,11 @@ public:
 
     friend void printCurrentPool(KGAllocatorV2 *allocator);
 
+    //
+    // Release all idle node immediately.
+    // 0 should be returned if CompressMemoryPool execute successfully.
+    int CompressMemoryPool();
+
     virtual ~KGAllocatorV2();
 
 private:

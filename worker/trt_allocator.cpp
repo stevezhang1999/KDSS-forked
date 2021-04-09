@@ -314,7 +314,7 @@ void KGAllocatorV2::free(void *memory)
         return (c1->flag == false) ? true : false;
     });
     // if there is too much free chunk? (bigger than 32MiB) release half of it.
-    if (slab->free_chunk_num >= slab->using_chunk_num && slab->free_chunk_num * size >= (uint64_t)(1 << 25))
+    if (slab->free_chunk_num + slab->using_chunk_num > 5 && slab->free_chunk_num >= slab->using_chunk_num && slab->free_chunk_num * size >= (uint64_t)(1 << 25))
     {
         int result = 0;
         for (int i = 0; i < slab->free_chunk_num / 2; i++)
@@ -367,5 +367,45 @@ void printCurrentPool(KGAllocatorV2 *allocator)
         cout << "Slab " << n.first << " free chunk num: " << n.second->free_chunk_num << ", using chunk num: " << n.second->using_chunk_num << endl;
     }
     return;
+}
+
+int KGAllocatorV2::CompressMemoryPool()
+{
+    std::lock_guard<std::mutex> lock(this->mu);
+    for (auto iter = this->mapping.begin(); iter != this->mapping.end(); ++iter)
+    {
+        // Search for each idle chunk.
+        auto chunk = iter->second;
+        if (chunk->flag == true)
+        {
+            // find the slab
+            auto iter_2 = this->memory_pool.find(iter->second->size);
+            if (iter_2 == this->memory_pool.end())
+            {
+                // It should not happen.
+                gLogError << __CXX_PREFIX << "kgmallocV2 internal error." << endl;
+                gLogError << __CXX_PREFIX << "Not found address of mapping in memory pool." << endl;
+                return -1;
+            }
+            auto slab = iter_2->second;
+            auto slab_iter = slab->chunks.begin();
+            for (; slab_iter != slab->chunks.end(); ++slab_iter)
+            {
+                if (*slab_iter == chunk)
+                {
+                    slab->chunks.erase(slab_iter);
+                    break;
+                }
+            }
+            if (slab_iter == slab->chunks.end())
+            {
+                // It should not happen.
+                gLogError << __CXX_PREFIX << "kgmallocV2 internal error." << endl;
+                gLogError << __CXX_PREFIX << "Not found address of mapping in slab." << endl;
+                return -1;
+            }
+        }
+    }
+    return 0;
 }
 // end of trt_allocator.cpp
