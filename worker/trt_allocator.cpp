@@ -10,12 +10,10 @@
 #include <iostream>
 #include <vector>
 #include <memory>
+#include <iomanip>
+#include <thread>
 
-using std::cerr;
-using std::cout;
-using std::endl;
-using std::ostringstream;
-using std::string;
+using namespace std;
 
 // global_allocator - 全局唯一allocator
 std::shared_ptr<nvinfer1::IGpuAllocator> global_allocator = nullptr;
@@ -153,4 +151,221 @@ DefaultAllocator::~DefaultAllocator()
 {
 }
 
+KGAllocatorV2Chunk::KGAllocatorV2Chunk(uint64_t size)
+{
+    int result;
+    check_cuda_success(cudaMalloc(&this->d_ptr, size), result);
+    if (result != 0)
+    {
+        gLogError << __CXX_PREFIX << "CUDA malloc error." << endl;
+        this->d_ptr = nullptr;
+        this->flag = false;
+        this->size = 0;
+        return;
+    }
+    this->flag = true;
+    this->size = size;
+    return;
+};
+
+KGAllocatorV2Chunk::~KGAllocatorV2Chunk()
+{
+    int result = 0;
+    if (flag == true)
+    {
+        gLogError << "Warning: device memory " << d_ptr << " is still on using.";
+        gLogError << "Your device memory may leaked." << endl;
+    }
+    check_cuda_success(cudaFree(d_ptr), result);
+    if (result != 0)
+    {
+        gLogError << "Release device memory failed." << endl;
+    }
+}
+
+KGAllocatorV2::KGAllocatorV2()
+{
+}
+
+KGAllocatorV2::~KGAllocatorV2()
+{
+}
+
+void *KGAllocatorV2::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
+{
+#ifdef __DEBUG
+    INSERT_ALLOCATOR_V2_DEBUG_INFO("[DEBUG] Before kgallocator v2 allocate:");
+#endif
+    int result = 0;
+    this->mu.lock();
+    auto iter = this->memory_pool.find(size);
+    if (iter == this->memory_pool.end())
+    {
+        this->memory_pool.insert(std::pair<uint64_t, V2Slab *>(size, new V2Slab()));
+        iter = this->memory_pool.find(size);
+    }
+    auto slab = iter->second;
+    this->mu.unlock();
+
+    // lock the slab, lock guard can guarantee that we don't need to call slab->SlabMu->unlock();
+    std::lock_guard<std::mutex> lock(slab->SlabMu);
+    if (slab->chunks.size() != 0)
+    {
+        // find available chunk
+        for (auto iter = slab->chunks.rbegin(); iter != slab->chunks.rend(); ++iter)
+        {
+            if ((*iter)->flag == true)
+            {
+                // get available chunk
+                (*iter)->flag = false;
+#ifdef __DEBUG
+                INSERT_ALLOCATOR_V2_DEBUG_INFO("[DEBUG] After kgallocator v2 allocate:");
+#endif
+                this->mu.lock();
+                this->mapping.insert({slab->chunks.back()->d_ptr, slab->chunks.back()});
+                this->mu.unlock();
+                slab->free_chunk_num--;
+                slab->using_chunk_num++;
+                return (*iter)->d_ptr;
+            }
+        }
+        // no available chunk.
+    }
+
+    // allocate for new chunk
+    // 4MiB<size<=8MiB的显存分配俩块。
+    // size > 8MiB的分配一块。
+    // <=4MiB的分配四块。
+    int loop_times = 1;
+    if (size > (uint64_t)(1 << 22) && size <= (uint64_t)(1 << 23))
+    {
+        loop_times = 2;
+    }
+    else if (size > (uint64_t)(1 << 23))
+    {
+        loop_times = 1;
+    }
+    else
+    {
+        loop_times = 4;
+    }
+
+    for (int i = 0; i < loop_times; i++)
+    {
+        V2Chunk *chunk = new V2Chunk(size);
+        if (chunk->d_ptr == nullptr)
+            return nullptr;
+        slab->chunks.push_back(chunk);
+        slab->free_chunk_num++;
+    }
+
+    // get recent allocated chunk
+    slab->chunks.back()->flag = false;
+    this->mu.lock();
+    this->mapping.insert({slab->chunks.back()->d_ptr, slab->chunks.back()});
+    this->mu.unlock();
+    slab->free_chunk_num--;
+    slab->using_chunk_num++;
+#ifdef __DEBUG
+    INSERT_ALLOCATOR_V2_DEBUG_INFO("[DEBUG] After kgallocator v2 allocate:");
+#endif
+    return slab->chunks.back()->d_ptr;
+}
+
+void KGAllocatorV2::free(void *memory)
+{
+#ifdef __DEBUG
+    INSERT_ALLOCATOR_V2_DEBUG_INFO("[DEBUG] Before kgallocator v2 free:");
+#endif
+    if (memory == nullptr)
+        return;
+    // mark as free and sort if there is too many idle chunk
+    this->mu.lock();
+    auto iter = this->mapping.find(memory);
+    if (iter == this->mapping.end() || iter->second->flag == true)
+    {
+        gLogError << __CXX_PREFIX << "memory invaild." << endl;
+        this->mu.unlock();
+        return;
+    }
+    auto chunk = iter->second;
+    // get chunk size and get the slab
+    uint64_t size = iter->second->size;
+    auto slab_iter = this->memory_pool.find(size);
+    if (slab_iter == this->memory_pool.end())
+    {
+        gLogError << __CXX_PREFIX << "memory invaild." << endl;
+        this->mu.unlock();
+        return;
+    }
+    auto slab = slab_iter->second;
+    // erase on mapping
+    mapping.erase(memory);
+    this->mu.unlock();
+
+    // lock the slab, lock guard can guarantee that we don't need to call slab->SlabMu->unlock();
+    std::lock_guard<std::mutex> lock(slab->SlabMu);
+    // free the chunk
+    chunk->flag = true;
+    slab->using_chunk_num--;
+    slab->free_chunk_num++;
+    // sort in order that first available chunk is at the end.
+    std::sort(slab->chunks.begin(), slab->chunks.end(), [](V2Chunk *c1, V2Chunk *v2) {
+        return (c1->flag == false) ? true : false;
+    });
+    // if there is too much free chunk? (bigger than 32MiB) release half of it.
+    if (slab->free_chunk_num >= slab->using_chunk_num && slab->free_chunk_num * size >= (uint64_t)(1 << 25))
+    {
+        int result = 0;
+        for (int i = 0; i < slab->free_chunk_num / 2; i++)
+        {
+            auto iter = slab->chunks.back();
+            if (iter->flag == false)
+            {
+                gLogError << __CXX_PREFIX << "KGAllocatorV2 internal error!" << endl;
+                gLogError << __CXX_PREFIX << "The compress of memory pool operates on using chunk." << endl;
+                abort();
+            }
+            check_cuda_success(cudaFree(iter->d_ptr), result);
+            slab->free_chunk_num--;
+            if (result != 0)
+            {
+                gLogError << __CXX_PREFIX << "memory invaild." << endl;
+                return;
+            }
+            slab->chunks.pop_back();
+        }
+    }
+#ifdef __DEBUG
+    INSERT_ALLOCATOR_V2_DEBUG_INFO("[DEBUG] After kgallocator v2 allocate:");
+#endif
+    return;
+}
+
+void printCurrentPool(KGAllocatorV2 *allocator)
+{
+    if (!allocator)
+        return;
+    if (allocator->memory_pool.size() == 0)
+    {
+        cout << "no any device memory on memory pool." << endl;
+        return;
+    }
+    std::lock_guard<std::mutex>(allocator->mu);
+    gLogInfo << "KGAllocator V2 current memory pool:" << endl;
+    cout << left << setfill(' ') << setw(20) << "address" << left << setfill(' ') << setw(20) << "size (Bytes)" << left << setfill(' ') << setw(20) << "status" << endl;
+    for (auto n : allocator->memory_pool)
+    {
+        for (auto k : n.second->chunks)
+        {
+            cout << left << setfill(' ') << setw(20) << k->d_ptr << left << setfill(' ') << setw(20) << k->size << left << setfill(' ') << setw(20);
+            if (k->flag == true)
+                cout << "idle" << endl;
+            else
+                cout << "using" << endl;
+        }
+        cout << "Slab " << n.first << " free chunk num: " << n.second->free_chunk_num << ", using chunk num: " << n.second->using_chunk_num << endl;
+    }
+    return;
+}
 // end of trt_allocator.cpp

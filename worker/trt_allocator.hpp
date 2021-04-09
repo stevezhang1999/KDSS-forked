@@ -3,10 +3,12 @@
 #include "kgmalloc.hpp"
 #include <NvInferRuntimeCommon.h>
 #include <unordered_map>
+#include <vector>
 #include <mutex>
 #include <iostream>
 #include <sstream>
 #include <memory>
+#include <atomic>
 
 #if defined(_WIN32) || defined(_MSC_VER)
 typedef unsigned int uint;
@@ -117,6 +119,24 @@ public:
     virtual ~DefaultAllocator();
 };
 
+typedef struct KGAllocatorV2Chunk
+{
+    KGAllocatorV2Chunk(uint64_t size);
+    ~KGAllocatorV2Chunk();
+    void *d_ptr;   // device memory address
+    uint64_t size; // this address pointed chunk's size
+    bool flag;     // false - unavailable, true - available
+} V2Chunk;
+
+typedef struct KGAllocatorV2Slab
+{
+    KGAllocatorV2Slab() : free_chunk_num(0), using_chunk_num(0) { chunks.clear(); };
+    std::vector<V2Chunk *> chunks;         // chunk queue
+    std::atomic<uint32_t> free_chunk_num;  // number of available chunk
+    std::atomic<uint32_t> using_chunk_num; // number of using chunk
+    std::mutex SlabMu;                     // mutex for chunk queue
+} V2Slab;
+
 class KGAllocatorV2 final : public nvinfer1::IGpuAllocator
 {
 public:
@@ -146,9 +166,26 @@ public:
     //!
     void free(void *memory);
 
+    friend void printCurrentPool(KGAllocatorV2 *allocator);
+
     virtual ~KGAllocatorV2();
+
+private:
+    std::unordered_map<uint64_t, V2Slab *> memory_pool; // each size allocated has a SLAB.
+    std::unordered_map<void *, V2Chunk *> mapping;      // for d_ptr -> chunk_ptr mapping
+    std::mutex mu;                                      // allocate global lock
 };
 
 extern std::shared_ptr<nvinfer1::IGpuAllocator> global_allocator;
 
+extern void printCurrentPool(KGAllocatorV2 *allocator);
+
+#ifndef INSERT_ALLOCATOR_V2_DEBUG_INFO
+#define INSERT_ALLOCATOR_V2_DEBUG_INFO(INFO)                                     \
+    do                                                                           \
+    {                                                                            \
+        gLogInfo << __CXX_PREFIX << (INFO) << endl;                              \
+        printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get())); \
+    } while (0);
+#endif
 // end of trt_allocator.hpp
