@@ -164,7 +164,7 @@ int main(int argc, char **argv)
     auto parsed = parseArgs(args, argc, argv);
     if (!parsed)
         return -1;
-    TransferWorker transfer_worker(DEFAULT_ALLOCATOR);
+    TransferWorker transfer_worker(KGMALLOCV2_ALLOCATOR);
     ComputationWorker computation_worker;
     std::vector<uint8_t> fileData(28 * 28 * sizeof(float));
 
@@ -239,8 +239,8 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < args.input_path.size(); i++)
     {
-        unique_ptr<void *> d_input(new void *[ef.InputName.size()]);
-        unique_ptr<void *> d_output(new void *[ef.OutputName.size()]);
+        MemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
+        std::unique_ptr<void *> d_output(new void *[ef.OutputName.size()]);
 
         if (!d_input || !d_output)
         {
