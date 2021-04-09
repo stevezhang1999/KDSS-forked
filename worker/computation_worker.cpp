@@ -17,31 +17,6 @@ extern uint64_t alignment;
 template <typename T>
 using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
 
-struct MemoryDeleter
-{
-    template <typename T>
-    void operator()(T *obj) const
-    {
-        if (obj)
-        {
-            for (int i = 0; i < current_length; i++)
-            {
-                if (allocator)
-                    allocator->free(obj[i]);
-            }
-            delete[] obj;
-            obj = nullptr;
-        }
-    }
-    // Current_length of obj
-    size_t current_length = 0;
-
-    // Current allocator
-    IGpuAllocator *allocator = nullptr;
-};
-
-template <typename T>
-using MemoryUniquePtr = std::unique_ptr<T, MemoryDeleter>;
 
 ComputationWorker::ComputationWorker()
 {
