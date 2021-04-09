@@ -17,7 +17,6 @@ extern uint64_t alignment;
 template <typename T>
 using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
 
-
 ComputationWorker::ComputationWorker()
 {
     // do nothing
@@ -345,4 +344,177 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     return this->ComputeWithStream(model_name, input, output, global_allocator.get());
 }
 
+int ComputationWorker::ComputeWithoutExecDeviceMemory(void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo)
+{
+    static int FirstComputeWithoutExecDeviceMemory = 0;
+    if (FirstComputeWithoutExecDeviceMemory == 0)
+    {
+        FirstComputeWithoutExecDeviceMemory = 1;
+        int device;
+        int result;
+        check_cuda_success(cudaGetDevice(&device), result);
+        if (result != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not get current executing device, compute aborted."
+                      << endl;
+            return -1;
+        }
+        gLogInfo << "Compute on device " << device << ".\n";
+    }
+    EngineInfo ef;
+    nvinfer1::ICudaEngine *engine;
+    if (eInfo == nullptr)
+    {
+        gLogError << __CXX_PREFIX << "Compute with given context but without engine info, exiting..."
+                  << endl;
+        return -1;
+    }
+    ef = *eInfo;
+    engine = ef.engine.get();
+
+    // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
+    int input_num = ef.InputName.size();
+    int output_num = ef.OutputName.size();
+
+    // buffers是从外面来的，无需管理其显存
+    std::unique_ptr<void *> buffers(new void *[(input_num + output_num)]);
+    if (!buffers)
+    {
+        gLogError << __CXX_PREFIX << "Buffer for computation alloc failed."
+                  << endl;
+        return -1;
+    }
+
+    // 处理host端input到device端input
+    for (int i = 0; i < ef.InputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int input_i_index = ef.InputNetworkIndex.at(i);
+        // 将已确定的显存地址分配过去
+        buffers.get()[input_i_index] = input[i];
+    }
+
+    // 处理device端output的映射
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int output_i_index = ef.OutputNetworkIndex.at(i);
+        // 将已确定的显存地址分配过去
+        buffers.get()[output_i_index] = output[i];
+    }
+
+    // 执行模型
+    bool status;
+    status = ctx->execute(1, buffers.get());
+    if (!status)
+    {
+        gLogError << __CXX_PREFIX << "Execute model failed!"
+                  << endl;
+        return -1;
+    }
+
+    return 0;
+}
+
+int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo)
+{
+    static int FirstComputeWithStreamWithoutExecDeviceMemory = 0;
+    if (FirstComputeWithStreamWithoutExecDeviceMemory == 0)
+    {
+        FirstComputeWithStreamWithoutExecDeviceMemory = 1;
+        int device;
+        int result;
+        check_cuda_success(cudaGetDevice(&device), result);
+        if (result != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not get current executing device, compute aborted."
+                      << endl;
+            return -1;
+        }
+        gLogInfo << "Compute with CUDA stream on device " << device << endl;
+    }
+    EngineInfo ef;
+    nvinfer1::ICudaEngine *engine;
+    SampleUniquePtr<nvinfer1::IExecutionContext> context;
+
+    if (eInfo == nullptr)
+    {
+        gLogError << __CXX_PREFIX << "Compute with given context but without engine info, exiting..."
+                  << endl;
+        return -1;
+    }
+    ef = *eInfo;
+    engine = ef.engine.get();
+
+    // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
+    int input_num = ef.InputName.size();
+    int output_num = ef.OutputName.size();
+
+    // buffers是从外面来的，无需管理其显存
+    std::unique_ptr<void *> buffers(new void *[(input_num + output_num)]);
+    if (!buffers)
+    {
+        gLogError << __CXX_PREFIX << "Buffer for computation alloc failed."
+                  << endl;
+        return -1;
+    }
+
+    // 创建CUDA stream
+    cudaStream_t stream;
+    int res = 0;
+    check_cuda_success(cudaStreamCreate(&stream), res);
+    if (res != 0)
+    {
+        gLogError << __CXX_PREFIX << "Can not create cuda stream."
+                  << endl;
+        return -1;
+    }
+
+    // 处理host端input到device端input
+    for (int i = 0; i < ef.InputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int input_i_index = ef.InputNetworkIndex.at(i);
+        // 将已确定的显存地址分配过去
+        buffers.get()[input_i_index] = input[i];
+    }
+
+    // 处理device端output的映射
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        // 找到它们在全局中的索引
+        int output_i_index = ef.OutputNetworkIndex.at(i);
+        // 将已确定的显存地址分配过去
+        buffers.get()[output_i_index] = output[i];
+    }
+
+    // 将模型计算任务加入到CUDA流
+    bool status;
+    status = ctx->enqueue(1, buffers.get(), stream, nullptr);
+    if (!status)
+    {
+        gLogError << __CXX_PREFIX << "Execute model failed!"
+                  << endl;
+        return -1;
+    }
+
+    check_cuda_success(cudaStreamSynchronize(stream), res);
+
+    if (res != 0)
+    {
+        gLogError << __CXX_PREFIX << "Can not synchrnonize cuda stream."
+                  << endl;
+        return -1;
+    }
+
+    // 销毁CUDA stream
+    check_cuda_success(cudaStreamDestroy(stream), res);
+    if (res != 0)
+    {
+        gLogError << __CXX_PREFIX << "Can not destroy cuda stream."
+                  << endl;
+        return -1;
+    }
+    return 0;
+}
 // end of computation_worker.cpp

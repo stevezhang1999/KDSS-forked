@@ -101,6 +101,17 @@ public:
     // \returns 执行成功则返回0，否则返回一个非0的数。
     int Compute(std::string model_name, void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
 
+    // ComputeWithoutExecDeviceMemory 根据上下文进行模型计算。
+    // 此函数不会给上下文分配执行显存，如果传入的ctx没有预先分配显存，则会由TensorRT抛出错误。
+    // 不建议使用此函数进行计算，除非确定ctx已分配好显存且该显存会被正确回收。
+    // \param input 输入对应的显存数组指针
+    // \param output 输出对应的显存指针数组的引用
+    // \param allocator 分配输入/输出显存使用的allocator
+    // \param ctx 执行需要用的上下文。如果ctx由CreateContextWithoutDeviceMemory构建且没有预先分配显存，则会导致未定义行为。
+    // \param eInfo 使用给定上下文执行时需要自带的EngineInfo信息。
+    // \returns 执行成功则返回0，否则返回一个非0的数。
+    int ComputeWithoutExecDeviceMemory(void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
+
     // ComputeWithStream 使用CUDA stream+global_allocator进行overlapped异步计算
     // \param model_name 需要调用的模型的名称
     // \param input 输入对应的显存数组指针
@@ -117,6 +128,17 @@ public:
     // \param eInfo 使用给定上下文执行时需要自带的EngineInfo信息，当ctx为nullptr时，该值将被忽略。
     // \returns 执行成功则返回0，否则返回一个非0的数。
     int ComputeWithStream(std::string model_name, void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
+
+    // ComputeWithStreamWithoutExecDeviceMemory 根据上下文进行流式模型计算。
+    // 此函数不会给上下文分配执行显存，如果传入的ctx没有预先分配显存，则会由TensorRT抛出错误。
+    // 不建议使用此函数进行计算，除非确定ctx已分配好显存且该显存会被正确回收。
+    // \param input 输入对应的显存数组指针
+    // \param output 输出对应的显存指针数组的引用
+    // \param allocator 分配输入/输出显存使用的allocator
+    // \param ctx 执行需要用的上下文。如果ctx由CreateContextWithoutDeviceMemory构建且没有预先分配显存，则会导致未定义行为。
+    // \param eInfo 使用给定上下文执行时需要自带的EngineInfo信息。
+    // \returns 执行成功则返回0，否则返回一个非0的数。
+    int ComputeWithStreamWithoutExecDeviceMemory(void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
 };
 
 // end of computation_worker.hpp
