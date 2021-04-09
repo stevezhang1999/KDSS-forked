@@ -41,6 +41,7 @@ TransferWorker::TransferWorker(ALLOCATOR_TYPE type)
         case KGMALLOCV2_ALLOCATOR:
             cout << "Using kgmalloc v2 allocator."
                  << endl;
+            global_allocator.reset(new KGAllocatorV2());
             break;
         default:
             global_allocator.reset(new DefaultAllocator());
@@ -398,11 +399,13 @@ int TransferWorker::TransferOutput(std::string model_name, void **output_ptr, st
             return -1;
         }
         h_output[i] = UnwrapOutput(output_ptr[i], output_i_size);
+        allocator->free(output_ptr[i]);
         if (!h_output[i])
         {
             // 释放所有h_output[0,i-1]的内存
             for (int j = 0; j < i; j++)
             {
+                allocator->free(output_ptr[j]);
                 free(h_output[j]);
             }
             free(h_output);
