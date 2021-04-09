@@ -37,8 +37,9 @@ public:
     // \param file_path 模型文件的路径
     // \param type 输入流代表的实际类型
     // \param allocator 构建引擎时为工作区指定的allocator
+    // \param workspace_size 构建工作区时使用的最大空间
     // \returns 该模型在全局的唯一索引，如果导入不成功，将会返回-1，并在logger中输出错误信息
-    int LoadModel(std::string model_name, std::string model_file, std::string file_path, ModelType type, IGpuAllocator *allocator);
+    int LoadModel(std::string model_name, std::string model_file, std::string file_path, ModelType type, IGpuAllocator *allocator, uint64_t workspace_size);
 
     // UnLoadModel 从显存中卸载模型
     // \param model_name 模型名称，该名称是在LoadModel时指定的。

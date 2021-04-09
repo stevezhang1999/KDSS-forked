@@ -96,7 +96,7 @@ TransferWorker::~TransferWorker()
 
 bool constructNetwork(SampleUniquePtr<nvinfer1::IBuilder> &builder,
                       SampleUniquePtr<nvinfer1::INetworkDefinition> &network, SampleUniquePtr<nvinfer1::IBuilderConfig> &config,
-                      SampleUniquePtr<nvonnxparser::IParser> &parser, std::string file_path, std::string model_file)
+                      SampleUniquePtr<nvonnxparser::IParser> &parser, std::string file_path, std::string model_file,uint64_t workspace_size)
 {
     auto parsed = parser->parseFromFile(
         (file_path + model_file).c_str(), static_cast<int>(ILogger::Severity::kINFO));
@@ -106,12 +106,12 @@ bool constructNetwork(SampleUniquePtr<nvinfer1::IBuilder> &builder,
     }
 
     builder->setMaxBatchSize(1);
-    config->setMaxWorkspaceSize(128_MiB);
+    config->setMaxWorkspaceSize(workspace_size);
 
     return true;
 }
 
-int TransferWorker::LoadModel(std::string model_name, std::string model_file, std::string file_path, ModelType type, IGpuAllocator *allocator)
+int TransferWorker::LoadModel(std::string model_name, std::string model_file, std::string file_path, ModelType type, IGpuAllocator *allocator, uint64_t workspace_size = 32_MiB)
 {
     switch (type)
     {
@@ -139,7 +139,7 @@ int TransferWorker::LoadModel(std::string model_name, std::string model_file, st
     {
         return -1;
     }
-    builder->setGpuAllocator(global_allocator.get());
+    builder->setGpuAllocator(allocator);
     auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetwork());
     if (!network)
     {
@@ -156,7 +156,7 @@ int TransferWorker::LoadModel(std::string model_name, std::string model_file, st
     {
         return -1;
     }
-    auto constructed = constructNetwork(builder, network, config, parser, file_path, model_file);
+    auto constructed = constructNetwork(builder, network, config, parser, file_path, model_file,workspace_size);
     if (!constructed)
     {
         return -1;
