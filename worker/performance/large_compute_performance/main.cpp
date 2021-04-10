@@ -250,14 +250,17 @@ int main(int argc, char **argv)
             for (unsigned int i = 0; i < OutputDim; i++)
             {
                 prob.push_back(pair<float, string>(output[i], cat.at(i)));
-                if (cat.at(i).length() > max_length)
-                    max_length = cat.at(i).length();
             }
             // 排序prob
             std::sort(prob.begin(), prob.end(), [](pair<float, string> a, pair<float, string> b) { return a.first > b.first; });
             gLogInfo << "For pic: " << pic << endl;
             gLogInfo << "The detect result TOP-5 is: " << endl;
             // 输出前五个
+            for (int i = 0; i < 5; i++)
+            {
+                if (cat.at(i).length() > max_length)
+                    max_length = cat.at(i).length();
+            }
             for (auto iter = prob.begin(); iter != prob.end() && iter != prob.begin() + 5; ++iter)
             {
                 stringstream ss;

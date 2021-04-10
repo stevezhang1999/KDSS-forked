@@ -129,7 +129,6 @@ int main(int argc, char **argv)
     }
     gLogInfo << "Read category for resnet-50 done." << endl;
 
-    
     GPUMemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
     GPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
 
@@ -226,7 +225,7 @@ int main(int argc, char **argv)
                       << endl;
             return -1;
         }
-        float *output ((float *)new char[output_data[0].size()]);
+        float *output((float *)new char[output_data[0].size()]);
         if (!output)
         {
             gLogError << __CXX_PREFIX << "Can not allocate memory for output data." << endl;
@@ -251,14 +250,17 @@ int main(int argc, char **argv)
             for (unsigned int i = 0; i < OutputDim; i++)
             {
                 prob.push_back(pair<float, string>(output[i], cat.at(i)));
-                if (cat.at(i).length() > max_length)
-                    max_length = cat.at(i).length();
             }
             // 排序prob
             std::sort(prob.begin(), prob.end(), [](pair<float, string> a, pair<float, string> b) { return a.first > b.first; });
             gLogInfo << "For pic: " << pic << endl;
             gLogInfo << "The detect result TOP-5 is: " << endl;
             // 输出前五个
+            for (int i = 0; i < 5; i++)
+            {
+                if (cat.at(i).length() > max_length)
+                    max_length = cat.at(i).length();
+            }
             for (auto iter = prob.begin(); iter != prob.end() && iter != prob.begin() + 5; ++iter)
             {
                 stringstream ss;
@@ -268,8 +270,7 @@ int main(int argc, char **argv)
             }
         }
         gLogInfo << "Detect finished." << endl;
-delete []output;
-        
+        delete[] output;
     }
 
     printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
