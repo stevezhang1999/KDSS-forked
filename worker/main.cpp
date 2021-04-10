@@ -8,6 +8,10 @@
 #include <string>
 using namespace std;
 
+#if NV_TENSORRT_MAJOR >= 7
+using namespace sample;
+#endif
+
 #if !defined(_MSC_VER)
 #include <getopt.h> // support on Windows MinGW
 #endif

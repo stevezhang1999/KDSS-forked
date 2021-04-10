@@ -11,6 +11,10 @@ using std::cerr;
 using std::endl;
 using std::string;
 
+#if NV_TENSORRT_MAJOR >= 7
+using namespace sample;
+#endif
+
 using nvinfer1::IGpuAllocator;
 
 extern std::shared_ptr<IGpuAllocator> global_allocator;
@@ -360,6 +364,7 @@ int TransferWorker::TransferInput(std::string model_name, const std::vector<std:
         }
         input_ptr[input_i_index] = WrapInput((void *)input_data[i].data(), input_i_size, allocator);
     }
+    return 0;
 }
 
 int TransferWorker::TransferOutput(std::string model_name, void **output_ptr, std::vector<std::vector<char>> &output_data, nvinfer1::IGpuAllocator *allocator)

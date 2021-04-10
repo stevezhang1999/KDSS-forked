@@ -9,6 +9,10 @@
 #include <string>
 #include <iostream>
 
+#if NV_TENSORRT_MAJOR >= 7
+using namespace sample;
+#endif
+
 using std::endl;
 
 extern std::shared_ptr<nvinfer1::IGpuAllocator> global_allocator;

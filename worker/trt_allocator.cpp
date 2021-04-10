@@ -13,6 +13,10 @@
 #include <iomanip>
 #include <thread>
 
+#if NV_TENSORRT_MAJOR >= 7
+using namespace sample;
+#endif
+
 using namespace std;
 
 // global_allocator - 全局唯一allocator

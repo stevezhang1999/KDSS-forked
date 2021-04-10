@@ -10,6 +10,10 @@
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/imgproc.hpp"
 
+#if NV_TENSORRT_MAJOR >= 7
+using namespace sample;
+#endif
+
 using namespace cv;
 using namespace std;
 
@@ -25,7 +29,11 @@ int main(int argc, char **argv)
         return -1;
     }
     ALLOCATOR_TYPE type;
+#if CV_VERSION_MAJOR >= 3 && CV_VERSION_MINOR >= 4 && CV_VERSION_PATCH <= 14
+    string type_string = cv::String(argv[1]).toLowerCase();
+#else
     string type_string = toLowerCase(argv[1]);
+#endif
     if (type_string == "default")
         type = DEFAULT_ALLOCATOR;
     else if (type_string == "kgmalloc")

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "kgmalloc.hpp"
-#include <NvInferRuntimeCommon.h>
+#include "NvInferRuntimeCommon.h"
 #include <unordered_map>
 #include <vector>
 #include <mutex>

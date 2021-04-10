@@ -6,7 +6,9 @@
 #include <iostream>
 #include <string>
 using namespace std;
-
+#if NV_TENSORRT_MAJOR >= 7
+using namespace sample;
+#endif
 int main()
 {
     TransferWorker transfer_worker(DEFAULT_ALLOCATOR);

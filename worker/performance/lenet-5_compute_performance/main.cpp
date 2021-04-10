@@ -9,6 +9,10 @@
 #include <algorithm> // for transform to lower
 using namespace std;
 
+#if NV_TENSORRT_MAJOR >= 7
+using namespace sample;
+#endif
+
 int main(int argc, char **argv)
 {
     if (argc == 1)
