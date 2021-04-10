@@ -192,6 +192,17 @@ int main(int argc, char **argv)
         {
             gLogError << __CXX_PREFIX << "Compute failed, exit..."
                       << endl;
+            switch (type)
+            {
+            case KGMALLOC_ALLOCATOR:
+                MemPoolInfo();
+                break;
+            case KGMALLOCV2_ALLOCATOR:
+                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                break;
+            default:
+                break;
+            }
             return -1;
         }
         output_data.clear();

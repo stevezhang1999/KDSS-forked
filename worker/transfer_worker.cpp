@@ -100,7 +100,7 @@ TransferWorker::~TransferWorker()
 
 bool constructNetwork(SampleUniquePtr<nvinfer1::IBuilder> &builder,
                       SampleUniquePtr<nvinfer1::INetworkDefinition> &network, SampleUniquePtr<nvinfer1::IBuilderConfig> &config,
-                      SampleUniquePtr<nvonnxparser::IParser> &parser, std::string file_path, std::string model_file,uint64_t workspace_size)
+                      SampleUniquePtr<nvonnxparser::IParser> &parser, std::string file_path, std::string model_file, uint64_t workspace_size)
 {
     auto parsed = parser->parseFromFile(
         (file_path + model_file).c_str(), static_cast<int>(ILogger::Severity::kINFO));
@@ -144,7 +144,12 @@ int TransferWorker::LoadModel(std::string model_name, std::string model_file, st
         return -1;
     }
     builder->setGpuAllocator(allocator);
+#if NV_TENSORRT_MAJOR >= 7
+    const auto explicitBatch = 1U << static_cast<uint32_t>(NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
+    auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(explicitBatch));
+#else
     auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetwork());
+#endif
     if (!network)
     {
         return -1;
@@ -160,7 +165,7 @@ int TransferWorker::LoadModel(std::string model_name, std::string model_file, st
     {
         return -1;
     }
-    auto constructed = constructNetwork(builder, network, config, parser, file_path, model_file,workspace_size);
+    auto constructed = constructNetwork(builder, network, config, parser, file_path, model_file, workspace_size);
     if (!constructed)
     {
         return -1;
@@ -384,7 +389,7 @@ int TransferWorker::TransferOutput(std::string model_name, void **output_ptr, st
     int output_num = ef.OutputName.size();
 
     // 对output逐个unwrap
-    void **h_output = new void*[output_num];
+    void **h_output = new void *[output_num];
     if (!h_output)
     {
         gLogError << __CXX_PREFIX << "Output allocation failed."
@@ -411,7 +416,7 @@ int TransferWorker::TransferOutput(std::string model_name, void **output_ptr, st
             for (int j = 0; j < i; j++)
             {
                 allocator->free(output_ptr[j]);
-                delete[] (char *)h_output[j];
+                delete[](char *) h_output[j];
             }
             delete[] h_output;
             h_output = nullptr;
@@ -430,7 +435,7 @@ int TransferWorker::TransferOutput(std::string model_name, void **output_ptr, st
     // 释放h_output
     for (int i = 0; i < ef.OutputName.size(); i++)
     {
-        delete[] (char *)h_output[i];
+        delete[](char *) h_output[i];
     }
     delete[] h_output;
     return 0;
@@ -573,7 +578,7 @@ void *WrapInput(void *host_memory, uint64_t size, IGpuAllocator *allocator)
 
 void *UnwrapOutput(void *device_memory, size_t size)
 {
-    void *h_ptr = (void *) new char[size];
+    void *h_ptr = (void *)new char[size];
     if (!h_ptr)
     {
         gLogError << __CXX_PREFIX << "Can not malloc h_ptr"
@@ -605,7 +610,7 @@ void *WrapInputAsync(void *host_memory, uint64_t size, IGpuAllocator *allocator,
 
 void *UnwrapOutputAsync(void *device_memory, size_t size, cudaStream_t stream)
 {
-    void *h_ptr = (void *) new char[size];
+    void *h_ptr = (void *)new char[size];
     if (!h_ptr)
     {
         gLogError << __CXX_PREFIX << "Can not malloc h_ptr"

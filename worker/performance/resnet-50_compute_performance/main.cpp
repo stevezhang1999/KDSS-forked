@@ -44,11 +44,11 @@ int main(int argc, char **argv)
     ComputationWorker computation_worker;
 
     int loaded;
-    ifstream fin(std::string("/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/") + std::string("resnet-50.tengine"));
+    ifstream fin(std::string("/home/lijiakang/KDSS/model/") + std::string("resnet-50.tengine"));
     if (!fin)
     {
         DefaultAllocator *df = new DefaultAllocator();
-        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", ONNX_FILE, df, 256_MiB);
+        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, df, 256_MiB);
         delete df;
         if (loaded == -1)
         {
@@ -56,7 +56,7 @@ int main(int argc, char **argv)
             return loaded;
         }
         gLogInfo << "Loading resnet-50 model into memory successfully." << endl;
-        int saved = transfer_worker.SaveModel("resnet-50", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", "resnet-50.tengine");
+        int saved = transfer_worker.SaveModel("resnet-50", "/home/lijiakang/KDSS/model/", "resnet-50.tengine");
         if (saved != 0)
         {
             gLogFatal << "Saving resnet-50 model into disk failed." << endl;
@@ -67,7 +67,7 @@ int main(int argc, char **argv)
     else
     {
         fin.close();
-        loaded = transfer_worker.LoadFromEngineFile("resnet-50", "resnet-50.tengine", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", vector<string>{"data"}, vector<string>{"resnetv17_dense0_fwd"});
+        loaded = transfer_worker.LoadFromEngineFile("resnet-50", "resnet-50.tengine", "/home/lijiakang/KDSS/model/", vector<string>{"data"}, vector<string>{"resnetv17_dense0_fwd"});
         if (loaded == -1)
         {
             gLogFatal << "Loading resnet-50 model into memory failed." << endl;
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
 
     // 先读取类目表
     vector<string> cat;
-    int read = readCategory("synset.txt", "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/", cat);
+    int read = readCategory("synset.txt", "/home/lijiakang/KDSS/test_data/resnet-50/", cat);
     if (read != 0 || cat.size() != 1000)
     {
         gLogFatal << "Can not read category for resnet-50, exiting..." << endl;
@@ -155,8 +155,8 @@ int main(int argc, char **argv)
 
     // 输入预处理
     // resnet-50的输入为图片，所以需要引入opencv
-    const string prefix = "/home/lijiakang/TensorRT-6.0.1.5/data/resnet50/";
-    for (auto pic : {"tabby_tiger_cat.jpg", "cat/cat_1.jpg", "cat/cat_2.jpg"})
+    const string prefix = "/home/lijiakang/KDSS/test_data/resnet-50/cat/";
+    for (auto pic : {"tabby_tiger_cat.jpg", "cat_1.jpg", "cat_2.jpg"})
     {
         // 申请device端output空间，该空间会在TransferOutput时被释放掉
         for (int i = 0; i < ef.OutputName.size(); i++)
@@ -336,31 +336,56 @@ int main(int argc, char **argv)
             gLogInfo << "Test " << i << " times" << endl;
         }
 
+        void **d_output_ptr;
         // 暂时解除智能指针的托管
-        auto d_output_ptr = d_output.release();
+        d_output_ptr = d_output.release();
         _CXX_MEASURE_TIME(executed = computation_worker.Compute("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
-        if (execution != 0)
+        if (executed != 0)
         {
             gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            MemPoolInfo();
+            switch (type)
+            {
+            case KGMALLOC_ALLOCATOR:
+                MemPoolInfo();
+                break;
+            case KGMALLOCV2_ALLOCATOR:
+                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                break;
+            default:
+                break;
+            }
             throw "";
+            return -1;
         }
         output_data.clear();
         // 恢复
         d_output.reset(d_output_ptr);
 
+#if NV_TENSORRT_MAJOR <= 6 // TensorRT 7好像并不支持流式传输重用上下文
         // 暂时解除智能指针的托管
         d_output_ptr = d_output.release();
         _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
-        if (execution != 0)
+        if (executed != 0)
         {
             gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            MemPoolInfo();
+            switch (type)
+            {
+            case KGMALLOC_ALLOCATOR:
+                MemPoolInfo();
+                break;
+            case KGMALLOCV2_ALLOCATOR:
+                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                break;
+            default:
+                break;
+            }
             throw "";
+            return -1;
         }
         output_data.clear();
         // 恢复
         d_output.reset(d_output_ptr);
+#endif
     }
     for (int i = 0; i < 2; i++)
         fout[i].close();
@@ -370,15 +395,23 @@ int main(int argc, char **argv)
 
 int ProcessBGRImage(cv::Mat img, Dims input_dims, char *(&output))
 {
+#if NV_TENSORRT_MAJOR >= 7
+    const int inputN = input_dims.d[0];
+    const int inputC = input_dims.d[1];
+    const int inputH = input_dims.d[2];
+    const int inputW = input_dims.d[3];
+#else
+    const int inputN = 1;
     const int inputC = input_dims.d[0];
     const int inputH = input_dims.d[1];
     const int inputW = input_dims.d[2];
+#endif
 
     // 申请一个float数组
-    float *img_buffer = new float[inputC * inputH * inputW];
+    float *img_buffer = new float[inputN * inputC * inputH * inputW];
     if (img.channels() != inputC)
     {
-        gLogError << __CXX_PREFIX << "Image channel not vailed, got: " << img.channels() << " expected: " << inputC;
+        gLogError << __CXX_PREFIX << "Image channel not vailed, got: " << img.channels() << " expected: " << inputC << endl;
         return -1;
     }
     if (img.rows != inputH || img.cols != inputW)
@@ -389,7 +422,7 @@ int ProcessBGRImage(cv::Mat img, Dims input_dims, char *(&output))
     const float mean_vec[3] = {0.485f, 0.456f, 0.406f};
     const float stddev_vec[3] = {0.229f, 0.224f, 0.225f};
     // Pixel mean used by the Faster R-CNN's author
-    for (int i = 0, volImg = inputC * inputH * inputW; i < 1; ++i)
+    for (int i = 0, volImg = inputC * inputH * inputW; i < inputN; ++i)
     {
         for (int c = 0; c < inputC; ++c)
         {

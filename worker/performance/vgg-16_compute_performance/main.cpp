@@ -340,25 +340,47 @@ int main(int argc, char **argv)
         if (execution != 0)
         {
             gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            MemPoolInfo();
+            switch (type)
+            {
+            case KGMALLOC_ALLOCATOR:
+                MemPoolInfo();
+                break;
+            case KGMALLOCV2_ALLOCATOR:
+                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                break;
+            default:
+                break;
+            }
             throw "";
         }
         output_data.clear();
         // 恢复
         d_output.reset(d_output_ptr);
 
+#if NV_TENSORRT_MAJOR <= 6 // TensorRT 7好像并不支持流式传输重用上下文
         // 暂时解除智能指针的托管
         d_output_ptr = d_output.release();
         _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("vgg-16", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
         if (execution != 0)
         {
             gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            MemPoolInfo();
+            switch (type)
+            {
+            case KGMALLOC_ALLOCATOR:
+                MemPoolInfo();
+                break;
+            case KGMALLOCV2_ALLOCATOR:
+                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                break;
+            default:
+                break;
+            }
             throw "";
         }
         output_data.clear();
         // 恢复
         d_output.reset(d_output_ptr);
+#endif
     }
     for (int i = 0; i < 2; i++)
         fout[i].close();

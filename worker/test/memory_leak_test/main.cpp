@@ -6,6 +6,11 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+
+#if NV_TENSORRT_MAJOR >= 7
+using namespace sample;
+#endif
+
 using namespace std;
 
 int main(int argc, char **argv)
@@ -147,7 +152,7 @@ int main(int argc, char **argv)
         output_data.clear();
         // 恢复
         d_output.reset(d_output_ptr);
-
+#if NV_TENSORRT_MAJOR <= 6 // TensorRT 7好像并不支持流式传输重用上下文
         // 暂时解除智能指针的托管
         d_output_ptr = d_output.release();
         executed = computation_worker.ComputeWithStream("mnist", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef);
@@ -160,6 +165,7 @@ int main(int argc, char **argv)
         output_data.clear();
         // 恢复
         d_output.reset(d_output_ptr);
+#endif
         loop_time++;
     }
     return 0;
