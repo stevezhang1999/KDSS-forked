@@ -173,7 +173,7 @@ KGAllocatorV2Chunk::~KGAllocatorV2Chunk()
     int result = 0;
     if (flag == true)
     {
-        gLogError << "Warning: device memory " << d_ptr << " is still on using.";
+        gLogError << "Warning: device memory " << d_ptr << " is still in memory pool.";
         gLogError << "Your device memory may leaked." << endl;
     }
     // do not try to free device memory on destructor, driver is shutting down.
