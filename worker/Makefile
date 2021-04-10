@@ -7,7 +7,7 @@ CXX := g++
 CC := gcc
 
 ifeq ($(ARCH) , $(LINUX))
-	TRT_PATH := /home/lijiakang/TensorRT-6.0.1.5
+	TRT_PATH := $(TENSORRT_PATH)
 	KGMALLOC_PATH := /home/lijiakang/kgmalloc
 	CUDA_INCLUDE_DIR := /usr/local/cuda/include
 	CUDA_LIB_DIR := /usr/local/cuda/lib64

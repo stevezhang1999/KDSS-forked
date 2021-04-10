@@ -1,7 +1,7 @@
 CXX := g++
 CC := gcc
 
-TRT_PATH := /home/lijiakang/TensorRT-6.0.1.5
+TRT_PATH := TRT_PATH := $(TENSORRT_PATH)
 KGMALLOC_PATH := /home/lijiakang/kgmalloc
 OPENCV_PATH := /usr/local
 
