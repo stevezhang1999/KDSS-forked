@@ -129,8 +129,9 @@ int main(int argc, char **argv)
     }
     gLogInfo << "Read category for resnet-50 done." << endl;
 
-    unique_ptr<void *> d_input(new void *[ef.InputName.size()]);
-    unique_ptr<void *> d_output(new void *[ef.OutputName.size()]);
+    
+    GPUMemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
+    GPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
 
     if (!d_input || !d_output)
     {
@@ -225,7 +226,7 @@ int main(int argc, char **argv)
                       << endl;
             return -1;
         }
-        float *output = (float *)new char[output_data[0].size()];
+        float *output ((float *)new char[output_data[0].size()]);
         if (!output)
         {
             gLogError << __CXX_PREFIX << "Can not allocate memory for output data." << endl;
@@ -267,7 +268,8 @@ int main(int argc, char **argv)
             }
         }
         gLogInfo << "Detect finished." << endl;
-        delete[] output;
+delete []output;
+        
     }
 
     printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));

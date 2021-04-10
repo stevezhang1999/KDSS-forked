@@ -379,7 +379,7 @@ int TransferWorker::TransferOutput(std::string model_name, void **output_ptr, st
     int output_num = ef.OutputName.size();
 
     // 对output逐个unwrap
-    void **h_output = (void **)malloc(sizeof(void *) * output_num);
+    void **h_output = new void*[output_num];
     if (!h_output)
     {
         gLogError << __CXX_PREFIX << "Output allocation failed."
@@ -406,9 +406,9 @@ int TransferWorker::TransferOutput(std::string model_name, void **output_ptr, st
             for (int j = 0; j < i; j++)
             {
                 allocator->free(output_ptr[j]);
-                free(h_output[j]);
+                delete[] (char *)h_output[j];
             }
-            free(h_output);
+            delete[] h_output;
             h_output = nullptr;
             output_data.clear();
             return -1;
@@ -425,9 +425,9 @@ int TransferWorker::TransferOutput(std::string model_name, void **output_ptr, st
     // 释放h_output
     for (int i = 0; i < ef.OutputName.size(); i++)
     {
-        free(h_output[i]);
+        delete[] (char *)h_output[i];
     }
-    free(h_output);
+    delete[] h_output;
     return 0;
 }
 
@@ -568,8 +568,7 @@ void *WrapInput(void *host_memory, uint64_t size, IGpuAllocator *allocator)
 
 void *UnwrapOutput(void *device_memory, size_t size)
 {
-    // int *h_ptr = static_cast<int *>((void *)new char[size]);
-    void *h_ptr = malloc(size);
+    void *h_ptr = (void *) new char[size];
     if (!h_ptr)
     {
         gLogError << __CXX_PREFIX << "Can not malloc h_ptr"
@@ -601,8 +600,7 @@ void *WrapInputAsync(void *host_memory, uint64_t size, IGpuAllocator *allocator,
 
 void *UnwrapOutputAsync(void *device_memory, size_t size, cudaStream_t stream)
 {
-    // int *h_ptr = static_cast<int *>((void *)new char[size]);
-    void *h_ptr = malloc(size);
+    void *h_ptr = (void *) new char[size];
     if (!h_ptr)
     {
         gLogError << __CXX_PREFIX << "Can not malloc h_ptr"

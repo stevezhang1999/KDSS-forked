@@ -9,7 +9,7 @@ using namespace std;
 
 int main()
 {
-    TransferWorker transfer_worker;
+    TransferWorker transfer_worker(DEFAULT_ALLOCATOR);
     ComputationWorker computation_worker;
     std::vector<uint8_t> fileData(28 * 28 * sizeof(float));
     // int mNumber = rand() % 10;
@@ -31,7 +31,7 @@ int main()
     }
     for (int i = 1; i <= 20; i++)
     {
-        _CXX_MEASURE_TIME(loaded = transfer_worker.Load((std::string("mnist") + std::to_string(i)).c_str(), "mnist.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/mnist/", ONNX_FILE), fout_1);
+        _CXX_MEASURE_TIME(loaded = transfer_worker.LoadModel((std::string("mnist") + std::to_string(i)).c_str(), "mnist.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/mnist/", ONNX_FILE), fout_1);
         if (loaded == -1)
         {
             gLogFatal << "Loading mnist model into memory failed." << endl;

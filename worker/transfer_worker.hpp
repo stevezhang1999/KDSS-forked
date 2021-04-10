@@ -16,6 +16,48 @@ enum ALLOCATOR_TYPE
     KGMALLOCV2_ALLOCATOR,
 };
 
+struct GPUMemoryDeleter
+{
+    template <typename T>
+    void operator()(T *obj) const
+    {
+        if (obj)
+        {
+            for (int i = 0; i < current_length; i++)
+            {
+                if (allocator)
+                    allocator->free(obj[i]);
+            }
+            delete[] obj;
+            obj = nullptr;
+        }
+    }
+    // Current_length of obj
+    size_t current_length = 0;
+
+    // Current allocator
+    IGpuAllocator *allocator = global_allocator.get();
+};
+
+template <typename T>
+using GPUMemoryUniquePtr = std::unique_ptr<T, GPUMemoryDeleter>;
+
+struct CPUMemoryDeleter
+{
+    template <typename T>
+    void operator()(T *obj) const
+    {
+        if (obj)
+        {
+            delete[] obj;
+            obj = nullptr;
+        }
+    }
+};
+
+template <typename T>
+using CPUMemoryUniquePtr = std::unique_ptr<T, CPUMemoryDeleter>;
+
 class TransferWorker final : public IWorker
 {
 public:
@@ -94,6 +136,12 @@ public:
     // \returns 执行成功则返回0，否则返回一个非0的数。
     int SaveModel(std::string model_name, std::string model_path, std::string file_name);
 
+    // GetCurrentDevice 获得当前transfer_worker正在使用的device
+    // \returns 当前transfer_worker正在使用的设备。
+    inline int GetCurrentDevice() const { return current_device; }
+
+private:
+    int current_device;
 };
 
 extern uint64_t alignment;

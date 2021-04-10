@@ -239,8 +239,12 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < args.input_path.size(); i++)
     {
-        MemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
-        std::unique_ptr<void *> d_output(new void *[ef.OutputName.size()]);
+        GPUMemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
+        d_input.get_deleter().allocator = global_allocator.get();
+        d_input.get_deleter().current_length = ef.InputName.size();
+        GPUMemoryUniquePtr<void *>d_output(new void *[ef.OutputName.size()]);
+        d_output.get_deleter().allocator = global_allocator.get();
+        d_output.get_deleter().current_length = ef.OutputName.size();
 
         if (!d_input || !d_output)
         {
@@ -316,7 +320,7 @@ int main(int argc, char **argv)
             return -1;
         }
         // float *output = static_cast<float *>(h_output[0].data());
-        float *output = (float *)new char[output_data[0].size()];
+        float *output ((float *)new char[output_data[0].size()]);
         if (!output)
         {
             gLogError << __CXX_PREFIX << "Can not allocate memory for output data." << endl;
@@ -359,7 +363,7 @@ int main(int argc, char **argv)
             }
             gLogInfo << std::endl;
         }
-        delete output;
+        
     }
     return 0;
 }

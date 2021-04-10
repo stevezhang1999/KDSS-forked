@@ -68,8 +68,8 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    unique_ptr<void *> d_input(new void *[ef.InputName.size()]);
-    unique_ptr<void *> d_output(new void *[ef.OutputName.size()]);
+    GPUMemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
+    GPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
 
     if (!d_input || !d_output)
     {

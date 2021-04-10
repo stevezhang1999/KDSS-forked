@@ -135,7 +135,8 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
     int output_num = ef.OutputName.size();
 
     // buffers是从外面来的，无需管理其显存
-    std::unique_ptr<void *> buffers(new void *[(input_num + output_num)]);
+    
+    CPUMemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed."
@@ -266,7 +267,8 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     int output_num = ef.OutputName.size();
 
     // buffers是从外面来的，无需管理其显存
-    std::unique_ptr<void *> buffers(new void *[(input_num + output_num)]);
+    
+    CPUMemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed."
@@ -377,7 +379,7 @@ int ComputationWorker::ComputeWithoutExecDeviceMemory(void **input, void **(&out
     int output_num = ef.OutputName.size();
 
     // buffers是从外面来的，无需管理其显存
-    std::unique_ptr<void *> buffers(new void *[(input_num + output_num)]);
+    CPUMemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed."
@@ -451,7 +453,7 @@ int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, vo
     int output_num = ef.OutputName.size();
 
     // buffers是从外面来的，无需管理其显存
-    std::unique_ptr<void *> buffers(new void *[(input_num + output_num)]);
+    CPUMemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed."

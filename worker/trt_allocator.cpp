@@ -176,11 +176,12 @@ KGAllocatorV2Chunk::~KGAllocatorV2Chunk()
         gLogError << "Warning: device memory " << d_ptr << " is still on using.";
         gLogError << "Your device memory may leaked." << endl;
     }
-    check_cuda_success(cudaFree(d_ptr), result);
-    if (result != 0)
-    {
-        gLogError << "Release device memory failed." << endl;
-    }
+    // do not try to free device memory on destructor, driver is shutting down.
+    // check_cuda_success(cudaFree(d_ptr), result);
+    // if (result != 0)
+    // {
+    //     gLogError << "Release device memory failed." << endl;
+    // }
 }
 
 KGAllocatorV2::KGAllocatorV2()
@@ -189,6 +190,21 @@ KGAllocatorV2::KGAllocatorV2()
 
 KGAllocatorV2::~KGAllocatorV2()
 {
+    std::lock_guard<std::mutex>(this->mu);
+    int result = 0;
+    for (auto n : this->memory_pool)
+    {
+        // find chunk
+        auto slab = n.second;
+        for (auto iter = slab->chunks.begin(); iter != slab->chunks.end();++iter)
+        {
+            auto chunk = *iter;
+            // free chunk
+            delete chunk;
+        }
+        // free slab
+        delete slab;
+    }
 }
 
 void *KGAllocatorV2::allocate(uint64_t size, uint64_t alignment, uint32_t flags)

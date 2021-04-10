@@ -40,7 +40,7 @@ int main(int argc, char **argv)
     if (!fin)
     {
         DefaultAllocator *df = new DefaultAllocator();
-        loaded = transfer_worker.LoadModel("vgg-16", "vgg16-7.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/vgg/", ONNX_FILE,df,1_GiB);
+        loaded = transfer_worker.LoadModel("vgg-16", "vgg16-7.onnx", "/home/lijiakang/TensorRT-6.0.1.5/data/vgg/", ONNX_FILE, df, 1_GiB);
         delete df;
         if (loaded == -1)
         {
@@ -129,9 +129,8 @@ int main(int argc, char **argv)
     }
     gLogInfo << "Read category for vgg-16 done." << endl;
 
-    unique_ptr<void *> d_input(new void *[ef.InputName.size()]);
-    unique_ptr<void *> d_output(new void *[ef.OutputName.size()]);
-
+    GPUMemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
+    GPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
 
     if (!d_input || !d_output)
     {
@@ -139,7 +138,7 @@ int main(int argc, char **argv)
                   << endl;
         return -1;
     }
-    
+
     memset(d_input.get(), 0, sizeof(void *) * ef.InputName.size());
     memset(d_output.get(), 0, sizeof(void *) * ef.OutputName.size());
 
@@ -226,7 +225,7 @@ int main(int argc, char **argv)
                       << endl;
             return -1;
         }
-        float *output = (float *)new char[output_data[0].size()];
+        float *output((float *)new char[output_data[0].size()]);
         if (!output)
         {
             gLogError << __CXX_PREFIX << "Can not allocate memory for output data." << endl;
