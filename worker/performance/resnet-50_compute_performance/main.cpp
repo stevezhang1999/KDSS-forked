@@ -138,7 +138,7 @@ int main(int argc, char **argv)
     gLogInfo << "Read category for resnet-50 done." << endl;
 
     GPUMemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
-    GPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
+    CPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
 
     if (!d_input || !d_output)
     {
@@ -147,6 +147,8 @@ int main(int argc, char **argv)
         return -1;
     }
 
+    d_input.get_deleter().current_length = ef.InputName.size();
+    
     memset(d_input.get(), 0, sizeof(void *) * ef.InputName.size());
     memset(d_output.get(), 0, sizeof(void *) * ef.OutputName.size());
 

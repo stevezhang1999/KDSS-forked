@@ -295,10 +295,10 @@ KGAllocatorV2Chunk::KGAllocatorV2Chunk(uint64_t size)
 KGAllocatorV2Chunk::~KGAllocatorV2Chunk()
 {
     int result = 0;
-    if (flag == true)
+    if (flag == false)
     {
-        gLogWarning << "Warning: device memory " << d_ptr << " is still in memory pool.";
-        gLogWarning << "Your device memory may leaked." << endl;
+        gLogWarning << "Warning: device memory " << d_ptr << " with size " << size <<" is still on using.";
+        gLogWarning << "Your device memory may corrupted." << endl;
     }
     // do not try to free device memory on destructor, driver is shutting down.
     // check_cuda_success(cudaFree(d_ptr), result);

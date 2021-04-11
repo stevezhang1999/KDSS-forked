@@ -77,10 +77,13 @@ int main(int argc, char **argv)
 
     if (!d_input || !d_output)
     {
-        gLogError << __CXX_PREFIX << "Allocate host memory for mnist input and output failed."
+        gLogError << __CXX_PREFIX << "Allocate host memory for resnet-50 input and output failed."
                   << endl;
         return -1;
     }
+
+    d_input.get_deleter().current_length = ef.InputName.size();
+    d_output.get_deleter().current_length = ef.OutputName.size();
 
     memset(d_input.get(), 0, sizeof(void *) * ef.InputName.size());
     memset(d_output.get(), 0, sizeof(void *) * ef.OutputName.size());

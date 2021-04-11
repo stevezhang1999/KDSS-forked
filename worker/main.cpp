@@ -246,9 +246,7 @@ int main(int argc, char **argv)
         GPUMemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
         d_input.get_deleter().allocator = global_allocator.get();
         d_input.get_deleter().current_length = ef.InputName.size();
-        GPUMemoryUniquePtr<void *>d_output(new void *[ef.OutputName.size()]);
-        d_output.get_deleter().allocator = global_allocator.get();
-        d_output.get_deleter().current_length = ef.OutputName.size();
+        CPUMemoryUniquePtr<void *>d_output(new void *[ef.OutputName.size()]);
 
         if (!d_input || !d_output)
         {

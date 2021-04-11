@@ -135,14 +135,16 @@ int main(int argc, char **argv)
     gLogInfo << "Read category for vgg-16 done." << endl;
 
     GPUMemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
-    GPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
+    CPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
 
     if (!d_input || !d_output)
     {
-        gLogError << __CXX_PREFIX << "Allocate host memory for vgg-16 input and output failed."
+        gLogError << __CXX_PREFIX << "Allocate host memory for resnet-50 input and output failed."
                   << endl;
         return -1;
     }
+
+    d_input.get_deleter().current_length = ef.InputName.size();
 
     memset(d_input.get(), 0, sizeof(void *) * ef.InputName.size());
     memset(d_output.get(), 0, sizeof(void *) * ef.OutputName.size());
