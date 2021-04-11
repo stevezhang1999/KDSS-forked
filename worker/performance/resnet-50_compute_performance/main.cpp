@@ -47,9 +47,9 @@ int main(int argc, char **argv)
     ifstream fin(std::string("/home/lijiakang/KDSS/model/") + std::string("resnet-50.tengine"));
     if (!fin)
     {
-        DefaultAllocator *df = new DefaultAllocator();
-        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, df, 256_MiB);
-        delete df;
+        // DefaultAllocator *df = new DefaultAllocator();
+        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, nullptr, 256_MiB);
+        // delete df;s
         if (loaded == -1)
         {
             gLogFatal << "Loading resnet-50 model into memory failed." << endl;
@@ -105,7 +105,7 @@ int main(int argc, char **argv)
     uint64_t input_size;
     if (GetModelInputSize("resnet-50", 0, &input_size) != 0)
     {
-        gLogError << "Can not get model input size of 0." << endl;
+        gLogError << __CXX_PREFIX << "Can not get model input size of 0." << endl;
         return -1;
     }
 
@@ -113,7 +113,7 @@ int main(int argc, char **argv)
     int execution_time = 0;
     if (argc < 3)
     {
-        gLogInfo << "Not found execution param, setting 2000 times." << endl;
+        gLogWarning << "Not found execution param, setting 2000 times." << endl;
         execution_time = 2000;
     }
     else

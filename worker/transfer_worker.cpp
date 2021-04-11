@@ -349,7 +349,7 @@ int TransferWorker::TransferInput(std::string model_name, const std::vector<std:
         if (input_i_index >= (input_num + output_num))
         {
             // This should not happen
-            gLogInfo << __CXX_PREFIX << "Buffers not long enough, reallocating..."
+            gLogWarning << __CXX_PREFIX << "Buffers not long enough, reallocating..."
                      << endl;
             input_ptr = (void **)realloc(input_ptr, sizeof(void *) * input_i_index);
             if (!input_ptr)

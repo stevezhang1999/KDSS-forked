@@ -35,7 +35,7 @@ void AllocatorInit()
     check_nvml_success(nvmlInit_v2(), result);
     if (result != 0)
     {
-        gLogError << __CXX_PREFIX << "Can not start NVML, which means we can not choose the device which is not running job properly." << endl;
+        gLogWarning << __CXX_PREFIX << "Can not start NVML, which means we can not choose the device which is not running job properly." << endl;
     }
     else
     {
@@ -108,7 +108,7 @@ void AllocatorInit()
             check_cuda_success(cudaMemGetInfo(&freeMem, &totalMem), result);
             if (result != 0)
             {
-                gLogInfo << "[CUDA_ERROR] Device " << i << "is on using. But can not get its memory information." << endl;
+                gLogWarning << "[CUDA_ERROR] Device " << i << "is on using. But can not get its memory information." << endl;
                 continue;
             }
             if (freeMem < (size_t)(1 << 30))
@@ -297,8 +297,8 @@ KGAllocatorV2Chunk::~KGAllocatorV2Chunk()
     int result = 0;
     if (flag == true)
     {
-        gLogError << "Warning: device memory " << d_ptr << " is still in memory pool.";
-        gLogError << "Your device memory may leaked." << endl;
+        gLogWarning << "Warning: device memory " << d_ptr << " is still in memory pool.";
+        gLogWarning << "Your device memory may leaked." << endl;
     }
     // do not try to free device memory on destructor, driver is shutting down.
     // check_cuda_success(cudaFree(d_ptr), result);
