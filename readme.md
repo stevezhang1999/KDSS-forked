@@ -9,7 +9,9 @@ KDSS（KarkLi's DNN Serve System）是一种类似于TensorFlow Serve System和P
 
 （可用性：❌）```controller``` —— 用于接收由gateway预处理过的请求，并将其放入到调度队列中等待调度。当某个任务就绪时，controller便会唤起computation_worker进行计算。整个系统可以有多个transfer_worker，但只会有一个computation_worker。
 
-（可用性：✅（测试中））```worker``` —— 用于提供对模型的操作，包括加载ONNX模型/反序列化已缓存的TensorRT引擎（如果选择TensorRT作为worker的底层实现），载入模型到显存中/从显存中卸载模型，传递输入/输出，执行某个模型等操作。
+（可用性：✅）```worker``` —— 用于提供对模型的操作，包括加载ONNX模型/反序列化已缓存的TensorRT引擎（如果选择TensorRT作为worker的底层实现），载入模型到显存中/从显存中卸载模型，传递输入/输出，执行某个模型等操作。
+
+**目前在TensorRT 6测试成功上下文重用功能，Tensor RT7上下文重用功能测试失败。**
 
 其中加载/反序列化模型文件、引擎，载入/卸载模型，传递输入/输出数据的worker我们称之为```transfer_worker```，根据用途的不同可以进一步细分```transfer_worker```，但在宏观上不作区分。而执行模型的worker称为```computation_worker```，整个系统只会有一个。
 
