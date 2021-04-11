@@ -26,7 +26,7 @@ LIB_DIR := $(CUDA_LIB_DIR)
 LIB_DIR += -L$(TRT_LIB_DIR)
 LIB_DIR += -L$(KGMALLOC_LIB_DIR)
 
-CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand
+CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand -lnvidia-ml
 TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
 KGMALLOC_LIBS := -lumap -lhash
 LIBS := -lrt -ldl -lpthread

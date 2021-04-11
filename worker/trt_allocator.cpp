@@ -5,6 +5,7 @@
 #include "hash/hash.hpp"
 #include "common/logger.h" // On TensorRT/samples
 #include "common/common.h"
+#include <nvml.h> // for detect GPU running process and power
 #include <string>
 #include <sstream>
 #include <iostream>
@@ -12,6 +13,7 @@
 #include <memory>
 #include <iomanip>
 #include <thread>
+#include <algorithm>
 
 #if NV_TENSORRT_MAJOR >= 7
 using namespace sample;
@@ -22,6 +24,110 @@ using namespace std;
 // global_allocator - 全局唯一allocator
 std::shared_ptr<nvinfer1::IGpuAllocator> global_allocator = nullptr;
 
+void AllocatorInit()
+{
+#if defined _WIN32
+    cerr << "We don't implemented NVML support for Windows, using device on index 0." << endl;
+    return;
+#endif
+    int nvml_running = 0;
+    int result = 0;
+    check_nvml_success(nvmlInit_v2(), result);
+    if (result != 0)
+    {
+        gLogError << __CXX_PREFIX << "Can not start NVML, which means we can not choose the device which is not running job properly." << endl;
+    }
+    else
+    {
+        nvml_running = 1;
+    }
+    unsigned int current_device_index = 32767;
+    if (nvml_running == 1)
+    {
+        // Find the device which is not using.
+        // Get device count first.
+        unsigned int device_count;
+        // NVMLShutter promise that every exit can call NvmlShutdown()
+        std::unique_ptr<void *, NVMLShutter> nvml_guard(nullptr);
+        check_nvml_success(nvmlDeviceGetCount_v2(&device_count), result);
+        if (result != 0)
+        {
+            gLogFatal << __CXX_PREFIX << "[NVML_ERROR] Get device count failed. Exiting..." << endl;
+            exit(1);
+        }
+        unsigned int i = 0;
+        for (; i < device_count; i++)
+        {
+            nvmlPstates_t pstate;
+            nvmlDevice_t device;
+            check_nvml_success(nvmlDeviceGetHandleByIndex_v2(i, &device), result);
+            if (result != 0)
+            {
+                gLogFatal << __CXX_PREFIX << "[NVML_ERROR] Get device handle failed. Exiting..." << endl;
+                exit(1);
+            }
+            check_nvml_success(nvmlDeviceGetPerformanceState(device, &pstate), result);
+            if (result != 0)
+            {
+                gLogFatal << __CXX_PREFIX << "[NVML_ERROR] Get device performance state failed. Exiting..." << endl;
+                exit(1);
+            }
+            if (pstate < nvmlPStates_enum::NVML_PSTATE_8)
+            {
+                gLogInfo << "Device " << i << " is using, switch to next device." << endl;
+                continue;
+            }
+            // try to set exclusive mode, if failed, just set CUDA device.
+            check_nvml_success(nvmlDeviceSetComputeMode(device, nvmlComputeMode_enum::NVML_COMPUTEMODE_EXCLUSIVE_PROCESS), result);
+            if (result != 0)
+            {
+                gLogError << __CXX_PREFIX << " [NVML_INFO] Set device on index " << i << " to exclusive compute mode failed, maybe you need to rerun your program on sudo (Linux) / Administrator (Windows)." << endl;
+            }
+            check_cuda_success(cudaSetDevice(i), result);
+            if (result != 0)
+            {
+                gLogFatal << __CXX_PREFIX << "[CUDA_ERROR] set device on index " << i << "for CUDA thread running failed." << endl;
+                exit(1);
+            }
+            current_device_index = i;
+            size_t freeMem, totalMem;
+            check_cuda_success(cudaMemGetInfo(&freeMem, &totalMem), result);
+            if (result != 0)
+            {
+                gLogInfo << "[CUDA_ERROR] Device " << i << "is on using. But can not get its memory information." << endl;
+                continue;
+            }
+            if (freeMem < (size_t)(1 << 30))
+            {
+                gLogError << __CXX_PREFIX << "[CUDA_ERROR] Device " << i << " free memory is less than 1 GiB, can not used for TensorRT execution." << endl;
+                continue;
+            }
+            gLogInfo.setf(ios::fixed, ios::floatfield);
+            gLogInfo << "Device " << i << " ,free memory: " << setprecision(3) << freeMem * 1.0f / (1 << 20) << " MiB,"
+                     << " total memory: " << setprecision(3) << totalMem * 1.0f / (1 << 20) << " MiB." << endl;
+            break;
+        }
+        if (i == device_count)
+        {
+            gLogFatal << __CXX_PREFIX << "[NVML_ERROR] No device can be used for execution." << endl;
+            exit(1);
+        }
+    }
+    struct cudaDeviceProp prop;
+    check_cuda_success(cudaGetDevice((int *)&current_device_index), result);
+    if (result != 0)
+    {
+        gLogError << __CXX_PREFIX << "[CUDA_ERROR] Can not get current device index." << endl;
+        return;
+    }
+    check_cuda_success(cudaGetDeviceProperties(&prop, current_device_index), result);
+    if (result != 0)
+    {
+        gLogError << __CXX_PREFIX << "[CUDA_ERROR] Can not get device properties on device " << current_device_index << "." << endl;
+        return;
+    }
+    gLogInfo << "Using CUDA device " << prop.name << " on index " << current_device_index << "." << endl;
+}
 // KGAllocator 执行底层kgmalloc初始化的构造函数
 KGAllocator::KGAllocator()
 {
@@ -132,7 +238,7 @@ KGErrCode KGAllocator::destroy()
 
 DefaultAllocator::DefaultAllocator()
 {
-    // do nothing
+    AllocatorInit();
 }
 
 void *DefaultAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
@@ -190,6 +296,7 @@ KGAllocatorV2Chunk::~KGAllocatorV2Chunk()
 
 KGAllocatorV2::KGAllocatorV2()
 {
+    AllocatorInit();
 }
 
 KGAllocatorV2::~KGAllocatorV2()
@@ -200,7 +307,7 @@ KGAllocatorV2::~KGAllocatorV2()
     {
         // find chunk
         auto slab = n.second;
-        for (auto iter = slab->chunks.begin(); iter != slab->chunks.end();++iter)
+        for (auto iter = slab->chunks.begin(); iter != slab->chunks.end(); ++iter)
         {
             auto chunk = *iter;
             // free chunk
@@ -323,12 +430,41 @@ void KGAllocatorV2::free(void *memory)
     mapping.erase(memory);
     this->mu.unlock();
 
+    int result = 0;
     // lock the slab, lock guard can guarantee that we don't need to call slab->SlabMu->unlock();
     std::lock_guard<std::mutex> lock(slab->SlabMu);
     // free the chunk
     chunk->flag = true;
+    // protect user input, output and model information
+    check_cuda_success(cudaMemset(chunk->d_ptr, 0, chunk->size), result);
+    if (result != 0)
+    {
+        gLogError << __CXX_PREFIX << "Unable to clear the device memory data." << endl;
+    }
     slab->using_chunk_num--;
     slab->free_chunk_num++;
+#ifdef __DEBUG
+    // free this chunk intermediately.
+
+    // find the chunk pos in slab
+    auto chunk_iter = std::find(slab->chunks.begin(), slab->chunks.end(), chunk);
+    if (chunk_iter == (slab->chunks.end()))
+    {
+        // it should not happen
+        gLogError << __CXX_PREFIX << "Can not find chunk on SLAB." << endl;
+        return;
+    }
+    // Since the destructor of chunk will not release the device memory,
+    // We need to do it by ourselves.
+    check_cuda_success(cudaFree((*chunk_iter)->d_ptr), result);
+    if (result != 0)
+    {
+        gLogError << __CXX_PREFIX << "Device memory " << (*chunk_iter)->d_ptr << " release failed." << endl;
+        return;
+    }
+    slab->chunks.erase(chunk_iter);
+    return;
+#endif
     // sort in order that first available chunk is at the end.
     std::sort(slab->chunks.begin(), slab->chunks.end(), [](V2Chunk *c1, V2Chunk *v2) {
         return (c1->flag == false) ? true : false;
@@ -336,7 +472,6 @@ void KGAllocatorV2::free(void *memory)
     // if there is too much free chunk? (bigger than 32MiB) release half of it.
     if (slab->free_chunk_num + slab->using_chunk_num > 5 && slab->free_chunk_num >= slab->using_chunk_num && slab->free_chunk_num * size >= (uint64_t)(1 << 25))
     {
-        int result = 0;
         for (int i = 0; i < slab->free_chunk_num / 2; i++)
         {
             auto iter = slab->chunks.back();

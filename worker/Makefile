@@ -18,7 +18,7 @@ ifeq ($(ARCH) , $(LINUX))
 	KGMALLOC_LIB_DIR := $(KGMALLOC_PATH)/lib
 	HASH_LIB_DIR += $(KGMALLOC_PATH)/hash
 	UMAP_LIB_DIR += $(KGMALLOC_PATH)/umap
-	CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand
+	CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand -lnvidia-ml
 	TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser
 	LIBS := -lrt -ldl -lpthread
 else

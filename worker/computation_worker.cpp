@@ -139,7 +139,7 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
     int output_num = ef.OutputName.size();
 
     // buffers是从外面来的，无需管理其显存
-    
+
     CPUMemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
@@ -170,11 +170,19 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
     bool status;
     if (ctx == nullptr)
     {
+#if NV_TENSORRT_MAJOR < 7
         status = context->execute(1, buffers.get());
+#else
+        status = context->executeV2(buffers.get());
+#endif
     }
     else
     {
+#if NV_TENSORRT_MAJOR < 7
         status = ctx->execute(1, buffers.get());
+#else
+        status = ctx->executeV2(buffers.get());
+#endif
     }
 
     // 释放执行显存
@@ -271,7 +279,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     int output_num = ef.OutputName.size();
 
     // buffers是从外面来的，无需管理其显存
-    
+
     CPUMemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
@@ -365,7 +373,7 @@ int ComputationWorker::ComputeWithoutExecDeviceMemory(void **input, void **(&out
                       << endl;
             return -1;
         }
-        gLogInfo << "Compute on device " << device << ".\n";
+        gLogInfo << "Compute on device " << device << "." << endl;
     }
     EngineInfo ef;
     nvinfer1::ICudaEngine *engine;

@@ -320,13 +320,23 @@ int main(int argc, char **argv)
         gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
         return -1;
     }
-
-    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
-    if (!ctx2)
+#if NV_TENSORRT_MAJOR >= 7
+    uint64_t execute_memory_size = ef.engine->getDeviceMemorySize();
+    void *execution_memory = global_allocator->allocate(execute_memory_size, alignment, 0);
+    if (!execution_memory)
     {
-        gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
+        gLogError << __CXX_PREFIX << "Can not allocate execution memory for engine " << ef.engine.get()->getName() << " execution."
+                  << endl;
         return -1;
     }
+#endif
+
+    // std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
+    // if (!ctx2)
+    // {
+    //     gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
+    //     return -1;
+    // }
 
     int executed = 0;
     for (int i = 1; i <= execution_time; i++)
@@ -339,7 +349,11 @@ int main(int argc, char **argv)
         void **d_output_ptr;
         // 暂时解除智能指针的托管
         d_output_ptr = d_output.release();
+#if NV_TENSORRT_MAJOR < 7
         _CXX_MEASURE_TIME(executed = computation_worker.Compute("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+#else
+        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+#endif
         if (executed != 0)
         {
             gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
@@ -389,7 +403,10 @@ int main(int argc, char **argv)
     }
     for (int i = 0; i < 2; i++)
         fout[i].close();
-
+#if NV_TENSORRT_MAJOR >= 7
+// 释放ctx device memory
+    global_allocator->free(execution_memory);
+#endif
     return 0;
 }
 

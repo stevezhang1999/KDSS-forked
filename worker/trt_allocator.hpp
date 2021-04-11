@@ -2,6 +2,10 @@
 
 #include "kgmalloc.hpp"
 #include "NvInferRuntimeCommon.h"
+#include "common.hpp"
+#include "common/logger.h" // On TensorRT/samples
+
+#include <nvml.h>
 #include <unordered_map>
 #include <vector>
 #include <mutex>
@@ -13,6 +17,28 @@
 #if defined(_WIN32) || defined(_MSC_VER)
 typedef unsigned int uint;
 #endif
+
+struct NVMLShutter
+{
+    template <typename T>
+    void operator()(T *obj) const
+    {
+        if (obj)
+        {
+            int result;
+            check_nvml_success(nvmlShutdown(), result);
+            if (result != 0)
+            {
+#if NV_TENSORRT_MAJOR < 7
+                gLogFatal << __CXX_PREFIX << " [NVML_ERROR] shutting down NVML failed." << std::endl;
+#else
+                sample::gLogFatal << __CXX_PREFIX << " [NVML_ERROR] shutting down NVML failed." << std::endl;
+#endif
+                exit(1);
+            }
+        }
+    }
+};
 
 class KGAllocator final : public nvinfer1::IGpuAllocator
 {
