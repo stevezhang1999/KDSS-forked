@@ -331,12 +331,14 @@ int main(int argc, char **argv)
     }
 #endif
 
-    // std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
-    // if (!ctx2)
-    // {
-    //     gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
-    //     return -1;
-    // }
+#if NV_TENSORRT_MAJOR < 7
+    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
+    if (!ctx2)
+    {
+        gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
+        return -1;
+    }
+#endif
 
     int executed = 0;
     for (int i = 1; i <= execution_time; i++)
@@ -375,7 +377,7 @@ int main(int argc, char **argv)
         // 恢复
         d_output.reset(d_output_ptr);
 
-#if NV_TENSORRT_MAJOR <= 6 // TensorRT 7好像并不支持流式传输重用上下文
+#if NV_TENSORRT_MAJOR < 7 // TensorRT 7好像并不支持流式传输重用上下文
         // 暂时解除智能指针的托管
         d_output_ptr = d_output.release();
         _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
@@ -404,7 +406,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < 2; i++)
         fout[i].close();
 #if NV_TENSORRT_MAJOR >= 7
-// 释放ctx device memory
+    // 释放ctx device memory
     global_allocator->free(execution_memory);
 #endif
     return 0;
