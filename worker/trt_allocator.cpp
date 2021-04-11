@@ -95,7 +95,7 @@ void AllocatorInit()
             }
             else
             {
-                gLogInfo << "Device " <<i <<"  is on exclusive compute mode." << endl;
+                gLogInfo << "Device " <<i <<" is on exclusive compute mode." << endl;
             }
             check_cuda_success(cudaSetDevice(i), result);
             if (result != 0)
