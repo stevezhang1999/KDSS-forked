@@ -77,11 +77,25 @@ void AllocatorInit()
                 gLogInfo << "Device " << i << " is using, switch to next device." << endl;
                 continue;
             }
-            // try to set exclusive mode, if failed, just set CUDA device.
-            check_nvml_success(nvmlDeviceSetComputeMode(device, nvmlComputeMode_enum::NVML_COMPUTEMODE_EXCLUSIVE_PROCESS), result);
+            // detect if it's already in exclusive mode.
+            nvmlComputeMode_t cmode;
+            check_nvml_success(nvmlDeviceGetComputeMode(device, &cmode), result);
             if (result != 0)
             {
-                gLogError << __CXX_PREFIX << " [NVML_INFO] Set device on index " << i << " to exclusive compute mode failed, maybe you need to rerun your program on sudo (Linux) / Administrator (Windows)." << endl;
+                gLogError << __CXX_PREFIX << " [NVML_ERROR] Can not get device compute mode on index " << i << "." << endl;
+            }
+            if (cmode != nvmlComputeMode_enum::NVML_COMPUTEMODE_EXCLUSIVE_PROCESS)
+            {
+                // try to set exclusive mode, if failed, just set CUDA device.
+                check_nvml_success(nvmlDeviceSetComputeMode(device, nvmlComputeMode_enum::NVML_COMPUTEMODE_EXCLUSIVE_PROCESS), result);
+                if (result != 0)
+                {
+                    gLogError << __CXX_PREFIX << " [NVML_INFO] Set device on index " << i << " to exclusive compute mode failed, maybe you need to rerun your program on sudo (Linux) / Administrator (Windows)." << endl;
+                }
+            }
+            else
+            {
+                gLogInfo << "Device " <<i <<"  is on exclusive compute mode." << endl;
             }
             check_cuda_success(cudaSetDevice(i), result);
             if (result != 0)
