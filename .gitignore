@@ -3,3 +3,6 @@
 *.o
 main
 *.txt
+model
+test_data
+include/boost*
