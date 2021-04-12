@@ -188,7 +188,7 @@ std::function<void(EpollTaskHandler *)> EpollTaskHandler::listen_func()
                     LOGFATAL("Can not get current time.");
                     continue;
                 }
-#ifdef __DEBUG
+#ifdef __EPOLL_LISTEN_DEBUG
                 LOGERROR("Timestamp %ld, no event has read.", now.tv_sec);
 #endif
                 // 还原被wait掉的ep_sem
@@ -452,7 +452,7 @@ uint64_t EpollTaskHandler::AddTask(uint64_t ts, ComputeTask *task)
 
 int EpollTaskHandler::DeleteEvent(uint64_t event_id)
 {
-    if (event_id < this->last_executing_task_id.load())
+    if (event_id > this->last_executing_task_id.load())
     {
         this->delete_task_poll.insert(pair<uint64_t, bool>(event_id, true));
         return 0;
@@ -465,7 +465,7 @@ void EpollTaskHandler::WaitEvent(uint64_t event_id)
     std::condition_variable cv;
     std::mutex mu;
     std::unique_lock<std::mutex> lk(mu);
-    while (this->last_executing_task_id.load() <= event_id)
+    while (this->last_executing_task_id.load() < event_id)
     {
         this->wp_locker.lock();
         this->wait_poll.insert(pair<uint64_t, condition_variable *>(event_id, &cv));
@@ -483,8 +483,15 @@ void EpollTaskHandler::CancelEvent(uint64_t event_id)
 
 uint64_t EpollTaskHandler::GetNextEvent()
 {
-    std::lock_guard<std::mutex>(this->tq_locker);
-    if (this->task_queue.front() == nullptr)
+    uint64_t res = 0;
+    this->tq_locker.lock();
+    if (this->task_queue.size() != 0)
+        res = this->task_queue.front()->task_id;
+    this->tq_locker.unlock();
+    if (res != 0)
+        return res;
+    std::lock_guard<std::mutex>(this->ep_locker);
+    if (this->event_pool.size() == 0)
         return 0;
-    return this->task_queue.front()->task_id;
+    return this->event_pool.front().second->task_id;
 }

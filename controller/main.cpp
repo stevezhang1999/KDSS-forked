@@ -76,7 +76,16 @@ int main()
         LOGFATAL("Can not add task.");
         return -1;
     }
-
+    if (handler.DeleteEvent(3) < 0)
+    {
+        LOGERROR("Delete event 3 failed.");
+    }
+    else
+    {
+        LOGINFO("Delete event 3 success.");
+    }
+    handler.WaitEvent(1);
+    LOGINFO("Next task_id: %ld",handler.GetNextEvent());
     handler.WaitEvent(id);
 
     // LOGERROR("Test");
