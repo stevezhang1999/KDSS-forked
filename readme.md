@@ -15,4 +15,8 @@ KDSS（KarkLi's DNN Serve System）是一种类似于TensorFlow Serve System和P
 
 其中加载/反序列化模型文件、引擎，载入/卸载模型，传递输入/输出数据的worker我们称之为```transfer_worker```，根据用途的不同可以进一步细分```transfer_worker```，但在宏观上不作区分。而执行模型的worker称为```computation_worker```，整个系统只会有一个。
 
-（可用性：✅）```kgmalloc``` —— 一个独立于该系统的GPU显存管理模块，```worker```层可基于其提供的原语进行显存管理。kgmalloc的地址：[kgmalloc](https://git.code.tencent.com/karkli/kgmalloc)。
+**有关提升worker计算性能的文档，请看worker/performance下的readme.md。**
+
+（可用性：✅，已弃用）```kgmalloc``` —— 一个独立于该系统的GPU显存管理模块，```worker```层可基于其提供的原语进行显存管理。kgmalloc的地址：[kgmalloc](https://git.code.tencent.com/karkli/kgmalloc)。
+
+建议```worker```层选用kgmalloc V2作为分配器，更安全，与C++更契合。
