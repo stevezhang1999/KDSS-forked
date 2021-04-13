@@ -315,8 +315,6 @@ int main(int argc, char **argv)
         }
     }
 
-
-
     // fix: 当前output显存已经被释放了，要重新申请
     for (int i = 0; i < ef.OutputName.size(); i++)
     {
@@ -348,12 +346,6 @@ int main(int argc, char **argv)
         gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
         return -1;
     }
-    void *execution_memory_1 = ContextSetDeviceMemory(ctx1.get(), global_allocator.get());
-    if (!execution_memory_1)
-    {
-        throw "";
-        return -1;
-    }
 
     // 创建上下文
     std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
@@ -361,12 +353,6 @@ int main(int argc, char **argv)
     if (!ctx2)
     {
         gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
-        return -1;
-    }
-    void *execution_memory_2 = ContextSetDeviceMemory(ctx2.get(), global_allocator.get());
-    if (!execution_memory_2)
-    {
-        throw "";
         return -1;
     }
 
@@ -383,7 +369,7 @@ int main(int argc, char **argv)
         {
             // 暂时解除智能指针的托管
             d_output_ptr = d_output.release();
-            _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+            _CXX_MEASURE_TIME(executed = computation_worker.Compute("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
             // #endif
             if (executed != 0)
             {
@@ -407,12 +393,11 @@ int main(int argc, char **argv)
             d_output.reset(d_output_ptr);
         } while (0);
 
-
         do
         {
             // 暂时解除智能指针的托管
             d_output_ptr = d_output.release();
-            _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStreamWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
+            _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
             if (executed != 0)
             {
                 gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
@@ -436,12 +421,11 @@ int main(int argc, char **argv)
         } while (0);
     }
 
+    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+
     for (int i = 0; i < 2; i++)
         fout[i].close();
-    
-    // 销毁执行显存
-    global_allocator->free(execution_memory_1);
-    global_allocator->free(execution_memory_2);
+
     return 0;
 }
 

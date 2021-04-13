@@ -120,7 +120,7 @@ public:
 };
 
 // ContextSetDeviceMemory 为ctx分配上下文显存，并返回显存的首地址
-// \param ctx 需要分配显存的上下文，该上下文需要从createExecutionContextWithoutDeviceMemory()构建，并从来没有分配过执行显存。否则会返回Segmentation fault。
+// \param ctx 需要分配显存的上下文，该上下文需要从createExecutionContextWithoutDeviceMemory()构建。
 // \returns 返回执行显存的首地址，用于释放显存。
 void *ContextSetDeviceMemory(nvinfer1::IExecutionContext *ctx, nvinfer1::IGpuAllocator *allocator);
 
