@@ -95,7 +95,7 @@ void AllocatorInit()
             }
             else
             {
-                gLogInfo << "Device " <<i <<" is on exclusive compute mode." << endl;
+                gLogInfo << "Device " << i << " is on exclusive compute mode." << endl;
             }
             check_cuda_success(cudaSetDevice(i), result);
             if (result != 0)
@@ -117,7 +117,7 @@ void AllocatorInit()
                 continue;
             }
             gLogInfo.setf(ios::fixed, ios::floatfield);
-            gLogInfo << "Device " << i << " ,free memory: " << setprecision(3) << freeMem * 1.0f / (1 << 20) << " MiB,"
+            gLogInfo << "Device " << i << ", free memory: " << setprecision(3) << freeMem * 1.0f / (1 << 20) << " MiB,"
                      << " total memory: " << setprecision(3) << totalMem * 1.0f / (1 << 20) << " MiB." << endl;
             break;
         }
@@ -261,7 +261,15 @@ void *DefaultAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t fla
     int result;
     check_cuda_success(cudaMalloc(&d_ptr, size), result);
     if (result == -1)
+    {
+#ifdef __DEBUG
+        gLogError << "Default allocator allocate 0x0 for size " << size << "." << endl;
+#endif
         return nullptr;
+    }
+#ifdef __DEBUG
+    gLogInfo << "Default allocator allocate " << d_ptr << " for size " << size << "." << endl;  
+#endif
     return d_ptr;
 }
 
@@ -269,6 +277,18 @@ void DefaultAllocator::free(void *memory)
 {
     int result;
     check_cuda_success(cudaFree(memory), result);
+    if (result == 0)
+    {
+#ifdef __DEBUG
+        gLogInfo << "Default allocator free " << memory << "." << endl;
+#endif
+    }
+    else
+    {
+#ifdef __DEBUG
+        gLogError << "Default allocator free " << memory << "failed." << endl;
+#endif
+    }
 }
 
 DefaultAllocator::~DefaultAllocator()
@@ -297,7 +317,7 @@ KGAllocatorV2Chunk::~KGAllocatorV2Chunk()
     int result = 0;
     if (flag == false)
     {
-        gLogWarning << "Warning: device memory " << d_ptr << " with size " << size <<" is still on using.";
+        gLogWarning << "Warning: device memory " << d_ptr << " with size " << size << " is still on using.";
         gLogWarning << "Your device memory may corrupted." << endl;
     }
     // do not try to free device memory on destructor, driver is shutting down.
@@ -425,7 +445,7 @@ void KGAllocatorV2::free(void *memory)
     auto iter = this->mapping.find(memory);
     if (iter == this->mapping.end() || iter->second->flag == true)
     {
-        gLogError << __CXX_PREFIX << "memory invaild." << endl;
+        gLogError << __CXX_PREFIX << "memory invaild (may double freed)." << endl;
         this->mu.unlock();
         return;
     }
@@ -435,7 +455,7 @@ void KGAllocatorV2::free(void *memory)
     auto slab_iter = this->memory_pool.find(size);
     if (slab_iter == this->memory_pool.end())
     {
-        gLogError << __CXX_PREFIX << "memory invaild." << endl;
+        gLogError << __CXX_PREFIX << "memory invaild (may double freed)." << endl;
         this->mu.unlock();
         return;
     }
@@ -499,7 +519,7 @@ void KGAllocatorV2::free(void *memory)
             slab->free_chunk_num--;
             if (result != 0)
             {
-                gLogError << __CXX_PREFIX << "memory invaild." << endl;
+                gLogError << __CXX_PREFIX << "memory invaild (may double freed)." << endl;
                 return;
             }
             slab->chunks.pop_back();
