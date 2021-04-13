@@ -176,11 +176,22 @@ int main(int argc, char **argv)
         gLogFatal << __CXX_PREFIX << "Can not create execution context of ResNet-50" << endl;
         return -1;
     }
-
+    void *ctx1_execmem = ContextSetDeviceMemory(ctx1.get(), global_allocator.get());
+    if (!ctx1_execmem)
+    {
+        throw "";
+        return -1;
+    }
     std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
     if (!ctx2)
     {
         gLogFatal << __CXX_PREFIX << "Can not create execution context of ResNet-50" << endl;
+        return -1;
+    }
+    void *ctx2_execmem = ContextSetDeviceMemory(ctx2.get(), global_allocator.get());
+    if (!ctx2_execmem)
+    {
+        throw "";
         return -1;
     }
 
@@ -190,7 +201,7 @@ int main(int argc, char **argv)
             gLogInfo << "Executed " << i << " times" << endl;
         // 暂时解除智能指针的托管
         auto d_output_ptr = d_output.release();
-        _CXX_MEASURE_TIME(executed = computation_worker.Compute("mnist", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
         if (executed != 0)
         {
             gLogError << __CXX_PREFIX << "Compute failed, exit..."
@@ -214,7 +225,7 @@ int main(int argc, char **argv)
 
         // 暂时解除智能指针的托管
         d_output_ptr = d_output.release();
-        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("mnist", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
+        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStreamWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
         if (executed != 0)
         {
             gLogError << __CXX_PREFIX << "Compute failed, exit..."
@@ -227,6 +238,10 @@ int main(int argc, char **argv)
     }
 
     printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+
+    global_allocator->free(ctx1_execmem);
+    global_allocator->free(ctx2_execmem);
+
 
     for (int i = 0; i < 2; i++)
         fout[i].close();

@@ -138,7 +138,7 @@ int main(int argc, char **argv)
     gLogInfo << "Read category for resnet-50 done." << endl;
 
     GPUMemoryUniquePtr<void *> d_input(new void *[ef.InputName.size()]);
-    CPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
+    GPUMemoryUniquePtr<void *> d_output(new void *[ef.OutputName.size()]);
 
     if (!d_input || !d_output)
     {
@@ -148,6 +148,7 @@ int main(int argc, char **argv)
     }
 
     d_input.get_deleter().current_length = ef.InputName.size();
+    d_output.get_deleter().current_length = ef.OutputName.size();
 
     memset(d_input.get(), 0, sizeof(void *) * ef.InputName.size());
     memset(d_output.get(), 0, sizeof(void *) * ef.OutputName.size());
@@ -438,11 +439,6 @@ int main(int argc, char **argv)
     for (int i = 0; i < 2; i++)
         fout[i].close();
     
-    // 销毁输出显存
-    for (int i = 0; i < ef.OutputName.size(); i++)
-    {
-        global_allocator->free(d_output.get()[i]);
-    }
     // 销毁执行显存
     global_allocator->free(execution_memory_1);
     global_allocator->free(execution_memory_2);
