@@ -66,6 +66,8 @@ public:
     // Compute 开始根据模型执行计算。
     // 此过程会根据模型引擎创建上下文，使用allocator分配输入/输出显存及运行时显存，
     // 并在退出时将其全部销毁。
+    //
+    // Warning:不建议调用该函数自行传入ctx，如果指定了ctx，该ctx仅在此次Compute有效（离开即被销毁）。如果要实现上下文复用，请使用WithoutExecDeviceMemory版本。
     // \param model_name 需要调用的模型的名称
     // \param input 输入对应的显存数组指针
     // \param output 输出对应的显存指针数组的引用
@@ -77,7 +79,7 @@ public:
 
     // ComputeWithoutExecDeviceMemory 根据上下文进行模型计算。
     // 此函数不会给上下文分配执行显存，如果传入的ctx没有预先分配显存，则会由TensorRT抛出错误。
-    // 不建议使用此函数进行计算，除非确定ctx已分配好显存且该显存会被正确回收。
+    // ctx必须已分配好显存且该显存会被正确回收。
     // \param input 输入对应的显存数组指针
     // \param output 输出对应的显存指针数组的引用
     // \param allocator 分配输入/输出显存使用的allocator
@@ -93,7 +95,9 @@ public:
     // \returns 执行成功则返回0，否则返回一个非0的数。
     int ComputeWithStream(std::string model_name, void **input, void **(&output));
 
-    // ComputeWithStream 使用CUDA stream+自定义分配器进行overlapped异步计算
+    // ComputeWithStream 使用CUDA stream+自定义分配器进行overlapped异步计算。
+    //
+    // Warning:不建议调用该函数自行传入ctx，如果指定了ctx，该ctx仅在此次Compute有效（离开即被销毁）。如果要实现上下文复用，请使用WithoutExecDeviceMemory版本。
     // \param model_name 需要调用的模型的名称
     // \param input 输入对应的显存数组指针
     // \param output 输出对应的显存指针数组的引用
@@ -105,7 +109,7 @@ public:
 
     // ComputeWithStreamWithoutExecDeviceMemory 根据上下文进行流式模型计算。
     // 此函数不会给上下文分配执行显存，如果传入的ctx没有预先分配显存，则会由TensorRT抛出错误。
-    // 不建议使用此函数进行计算，除非确定ctx已分配好显存且该显存会被正确回收。
+    // ctx必须已分配好显存且该显存会被正确回收。
     // \param input 输入对应的显存数组指针
     // \param output 输出对应的显存指针数组的引用
     // \param allocator 分配输入/输出显存使用的allocator
@@ -114,5 +118,10 @@ public:
     // \returns 执行成功则返回0，否则返回一个非0的数。
     int ComputeWithStreamWithoutExecDeviceMemory(void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx, EngineInfo *eInfo);
 };
+
+// ContextSetDeviceMemory 为ctx分配上下文显存，并返回显存的首地址
+// \param ctx 需要分配显存的上下文，该上下文需要从createExecutionContextWithoutDeviceMemory()构建，并从来没有分配过执行显存。否则会返回Segmentation fault。
+// \returns 返回执行显存的首地址，用于释放显存。
+void *ContextSetDeviceMemory(nvinfer1::IExecutionContext *ctx, nvinfer1::IGpuAllocator *allocator);
 
 // end of computation_worker.hpp

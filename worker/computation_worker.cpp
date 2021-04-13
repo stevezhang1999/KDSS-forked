@@ -109,6 +109,7 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
     }
     else
     {
+        gLogWarning << "Call Compute with own context has been depreated. To reuse context, use ComputeWithoutExecDeviceMemory instead." << endl;
         context = nullptr;
         if (eInfo == nullptr)
         {
@@ -155,6 +156,9 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
         int input_i_index = ef.InputNetworkIndex.at(i);
         // 将已确定的显存地址分配过去
         buffers.get()[input_i_index] = input[i];
+#ifdef __DEBUG
+        gLogInfo << "Input " << i << "'s device address:" << buffers.get()[input_i_index] << endl;
+#endif
     }
 
     // 处理device端output的映射
@@ -164,6 +168,9 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
         int output_i_index = ef.OutputNetworkIndex.at(i);
         // 将已确定的显存地址分配过去
         buffers.get()[output_i_index] = output[i];
+#ifdef __DEBUG
+        gLogInfo << "Output " << i << "'s device address:" << buffers.get()[output_i_index] << endl;
+#endif
     }
 
     // 执行模型
@@ -185,9 +192,6 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
 #endif
     }
 
-    // 释放执行显存
-    allocator->free(execution_memory);
-
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!"
@@ -195,6 +199,15 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
         return -1;
     }
 
+    // 释放执行显存
+    allocator->free(execution_memory);
+
+    // 防止ctx被复用，及时发现错误
+    if (ctx != nullptr)
+    {
+        gLogWarning << __CXX_PREFIX << "ctx has been called destroy(), don't reuse it." << endl;
+        ctx->destroy();
+    }
     return 0;
 }
 
@@ -255,6 +268,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     }
     else
     {
+        gLogWarning << "Call ComputeWithStream with own context has been depreated. To reuse context, use ComputeWithStreamWithoutExecDeviceMemory instead." << endl;
         context = nullptr;
         if (eInfo == nullptr)
         {
@@ -306,6 +320,9 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
         int input_i_index = ef.InputNetworkIndex.at(i);
         // 将已确定的显存地址分配过去
         buffers.get()[input_i_index] = input[i];
+#ifdef __DEBUG
+        gLogInfo << "Input " << i << "'s device address:" << buffers.get()[input_i_index] << endl;
+#endif
     }
 
     // 处理device端output的映射
@@ -315,6 +332,9 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
         int output_i_index = ef.OutputNetworkIndex.at(i);
         // 将已确定的显存地址分配过去
         buffers.get()[output_i_index] = output[i];
+#ifdef __DEBUG
+        gLogInfo << "Output " << i << "'s device address:" << buffers.get()[output_i_index] << endl;
+#endif
     }
 
     // 将模型计算任务加入到CUDA流
@@ -332,16 +352,21 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
 
     check_cuda_success(cudaStreamSynchronize(stream), res);
 
-    // 释放执行显存
-    allocator->free(execution_memory);
-
     if (res != 0)
     {
         gLogError << __CXX_PREFIX << "Can not synchrnonize cuda stream."
                   << endl;
         return -1;
     }
+    // 释放执行显存
+    allocator->free(execution_memory);
 
+    // 防止ctx被复用
+    if (ctx != nullptr)
+    {
+        gLogWarning << __CXX_PREFIX << "ctx has been called destroy(), don't reuse it." << endl;
+        ctx->destroy();
+    }
     // 销毁CUDA stream
     check_cuda_success(cudaStreamDestroy(stream), res);
     if (res != 0)
@@ -406,6 +431,9 @@ int ComputationWorker::ComputeWithoutExecDeviceMemory(void **input, void **(&out
         int input_i_index = ef.InputNetworkIndex.at(i);
         // 将已确定的显存地址分配过去
         buffers.get()[input_i_index] = input[i];
+#ifdef __DEBUG
+        gLogInfo << "Input " << i << "'s device address:" << buffers.get()[input_i_index] << endl;
+#endif
     }
 
     // 处理device端output的映射
@@ -415,11 +443,18 @@ int ComputationWorker::ComputeWithoutExecDeviceMemory(void **input, void **(&out
         int output_i_index = ef.OutputNetworkIndex.at(i);
         // 将已确定的显存地址分配过去
         buffers.get()[output_i_index] = output[i];
+#ifdef __DEBUG
+        gLogInfo << "Output " << i << "'s device address:" << buffers.get()[output_i_index] << endl;
+#endif
     }
 
     // 执行模型
     bool status;
+#if NV_TENSORRT_MAJOR < 7
     status = ctx->execute(1, buffers.get());
+#else
+    status = ctx->executeV2(buffers.get());
+#endif
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!"
@@ -491,6 +526,9 @@ int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, vo
         int input_i_index = ef.InputNetworkIndex.at(i);
         // 将已确定的显存地址分配过去
         buffers.get()[input_i_index] = input[i];
+#ifdef __DEBUG
+        gLogInfo << "Input " << i << "'s device address:" << buffers.get()[input_i_index] << endl;
+#endif
     }
 
     // 处理device端output的映射
@@ -500,11 +538,19 @@ int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, vo
         int output_i_index = ef.OutputNetworkIndex.at(i);
         // 将已确定的显存地址分配过去
         buffers.get()[output_i_index] = output[i];
+#ifdef __DEBUG
+        gLogInfo << "Output " << i << "'s device address:" << buffers.get()[output_i_index] << endl;
+#endif
     }
 
     // 将模型计算任务加入到CUDA流
     bool status;
+    // status = ctx->enqueue(1, buffers.get(), stream, nullptr);
+#if NV_TENSORRT_MAJOR < 7
     status = ctx->enqueue(1, buffers.get(), stream, nullptr);
+#else
+    status = ctx->enqueueV2(buffers.get(), stream, nullptr);
+#endif
     if (!status)
     {
         gLogError << __CXX_PREFIX << "Execute model failed!"
@@ -530,5 +576,25 @@ int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, vo
         return -1;
     }
     return 0;
+}
+
+void *ContextSetDeviceMemory(nvinfer1::IExecutionContext *ctx, nvinfer1::IGpuAllocator *allocator)
+{
+    if (ctx == nullptr || allocator == nullptr)
+    {
+        gLogError << __CXX_PREFIX << "Get nullptr." << endl;
+        return nullptr;
+    }
+    // 为Engine分配执行显存
+    uint64_t execute_memory_size = ctx->getEngine().getDeviceMemorySize();
+    void *execution_memory = allocator->allocate(execute_memory_size, alignment, 0);
+    if (!execution_memory)
+    {
+        gLogError << __CXX_PREFIX << "Can not allocate execution memory for context " << ctx->getName() << " execution."
+                  << endl;
+        return nullptr;
+    }
+    ctx->setDeviceMemory(execution_memory);
+    return execution_memory;
 }
 // end of computation_worker.cpp
