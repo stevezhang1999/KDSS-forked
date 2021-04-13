@@ -77,11 +77,6 @@ EXT_OBJS += $(KGMALLOC_PATH)/umap/umap.o
 
 all:rw_mutex $(TARGET)
 %.o:%.cpp
-ifeq ($(ARCH),$(LINUX))
-	@echo "Compiling on Linux"
-else
-	@echo "Compiling on Windows"
-endif
 	@echo "Compling" $<
 	$(CXX) -c $< $(CFLAGS) 
 $(TARGET):$(OBJS)
@@ -89,11 +84,6 @@ $(TARGET):$(OBJS)
 	$(CXX) $(CFLAGS) -o $@ $(EXT_OBJS) $^
 
 rw_mutex:
-ifeq ($(ARCH),$(LINUX))
-	@echo "Compiling on Linux"
-else
-	@echo "Compiling on Windows"
-endif
 	@echo "Compiling" ../util/RWMutex/rwmutex.cpp
 	$(CXX) -c ../util/RWMutex/rwmutex.cpp -o ../util/RWMutex/rwmutex.o -std=c++11
 .PHONY : clean
