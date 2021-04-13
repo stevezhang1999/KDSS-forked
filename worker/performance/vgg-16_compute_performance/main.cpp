@@ -6,7 +6,9 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-#include "opencv2/opencv.hpp"
+#include "opencv2/core.hpp"
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/imgproc.hpp"
 
 #if NV_TENSORRT_MAJOR >= 7
 using namespace sample;
@@ -45,9 +47,9 @@ int main(int argc, char **argv)
     ifstream fin(std::string("/home/lijiakang/KDSS/model/") + std::string("vgg-16.tengine"));
     if (!fin)
     {
-        DefaultAllocator *df = new DefaultAllocator();
-        loaded = transfer_worker.LoadModel("vgg-16", "vgg16-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, df, 1_GiB);
-        delete df;
+        // DefaultAllocator *df = new DefaultAllocator();
+        loaded = transfer_worker.LoadModel("vgg-16", "vgg16-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, nullptr, 256_MiB);
+        // delete df;s
         if (loaded == -1)
         {
             gLogFatal << "Loading vgg-16 model into memory failed." << endl;
@@ -103,14 +105,15 @@ int main(int argc, char **argv)
     uint64_t input_size;
     if (GetModelInputSize("vgg-16", 0, &input_size) != 0)
     {
-        gLogError << "Can not get model input size of 0." << endl;
+        gLogError << __CXX_PREFIX << "Can not get model input size of 0." << endl;
         return -1;
     }
 
+    int execution = 0;
     int execution_time = 0;
     if (argc < 3)
     {
-        gLogInfo << "Not found execution param, setting 2000 times." << endl;
+        gLogWarning << "Not found execution param, setting 2000 times." << endl;
         execution_time = 2000;
     }
     else
@@ -139,7 +142,7 @@ int main(int argc, char **argv)
 
     if (!d_input || !d_output)
     {
-        gLogError << __CXX_PREFIX << "Allocate host memory for resnet-50 input and output failed."
+        gLogError << __CXX_PREFIX << "Allocate host memory for vgg-16 input and output failed."
                   << endl;
         return -1;
     }
@@ -153,7 +156,7 @@ int main(int argc, char **argv)
     std::vector<std::vector<char>> output_data;
 
     // 输入预处理
-    // ResNet-50的输入为图片，所以需要引入opencv
+    // vgg-16的输入为图片，所以需要引入opencv
     const string prefix = "/home/lijiakang/KDSS/test_data/vgg-16/cat/";
     for (auto pic : {"tabby_tiger_cat.jpg", "cat_1.jpg", "cat_2.jpg"})
     {
@@ -219,7 +222,7 @@ int main(int argc, char **argv)
         executed = computation_worker.Compute("vgg-16", d_input.get(), d_output_ptr);
         // 恢复
         d_output.reset(d_output_ptr);
-        if (executed != 0)
+        if (execution != 0)
         {
             gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
             MemPoolInfo();
@@ -311,6 +314,29 @@ int main(int argc, char **argv)
         }
     }
 
+    // fix: 当前output显存已经被释放了，要重新申请
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        uint64_t size;
+        int executed = GetModelOutputSize("vgg-16", i, &size);
+        if (executed != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not get vgg-16 output size"
+                      << endl;
+            return -1;
+        }
+        d_output.get()[i] = global_allocator->allocate(size, alignment, 0);
+        if (!d_output.get()[i])
+        {
+            // 释放从0~i-1的所有显存
+            for (int j = 0; j < i; j++)
+                global_allocator->free(d_output.get()[j]);
+            gLogError << __CXX_PREFIX << "allocating for device memory failed."
+                      << endl;
+            return -1;
+        }
+    }
+
     // 创建上下文
     std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
         ctx1(ef.engine->createExecutionContextWithoutDeviceMemory());
@@ -319,15 +345,27 @@ int main(int argc, char **argv)
         gLogFatal << __CXX_PREFIX << "Can not create execution context of vgg-16" << endl;
         return -1;
     }
+    void *execution_memory_1 = ContextSetDeviceMemory(ctx1.get(), global_allocator.get());
+    if (!execution_memory_1)
+    {
+        throw "";
+        return -1;
+    }
 
-#if NV_TENSORRT_MAJOR < 7
-    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
+    // 创建上下文
+    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
+        ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
     if (!ctx2)
     {
         gLogFatal << __CXX_PREFIX << "Can not create execution context of vgg-16" << endl;
         return -1;
     }
-#endif
+    void *execution_memory_2 = ContextSetDeviceMemory(ctx2.get(), global_allocator.get());
+    if (!execution_memory_2)
+    {
+        throw "";
+        return -1;
+    }
 
     int executed = 0;
     for (int i = 1; i <= execution_time; i++)
@@ -337,57 +375,74 @@ int main(int argc, char **argv)
             gLogInfo << "Test " << i << " times" << endl;
         }
 
-        // 暂时解除智能指针的托管
-        auto d_output_ptr = d_output.release();
-        _CXX_MEASURE_TIME(executed = computation_worker.Compute("vgg-16", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
-        if (executed != 0)
+        void **d_output_ptr;
+        do
         {
-            gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            switch (type)
+            // 暂时解除智能指针的托管
+            d_output_ptr = d_output.release();
+            _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+            // #endif
+            if (executed != 0)
             {
-            case KGMALLOC_ALLOCATOR:
-                MemPoolInfo();
-                break;
-            case KGMALLOCV2_ALLOCATOR:
-                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
-                break;
-            default:
-                break;
+                gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
+                switch (type)
+                {
+                case KGMALLOC_ALLOCATOR:
+                    MemPoolInfo();
+                    break;
+                case KGMALLOCV2_ALLOCATOR:
+                    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                    break;
+                default:
+                    break;
+                }
+                throw "";
+                return -1;
             }
-            throw "";
-        }
-        output_data.clear();
-        // 恢复
-        d_output.reset(d_output_ptr);
+            output_data.clear();
+            // 恢复
+            d_output.reset(d_output_ptr);
+        } while (0);
 
-#if NV_TENSORRT_MAJOR < 7 // TensorRT 7好像并不支持流式传输重用上下文
-        // 暂时解除智能指针的托管
-        d_output_ptr = d_output.release();
-        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("vgg-16", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
-        if (executed != 0)
+        do
         {
-            gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            switch (type)
+            // 暂时解除智能指针的托管
+            d_output_ptr = d_output.release();
+            _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStreamWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
+            if (executed != 0)
             {
-            case KGMALLOC_ALLOCATOR:
-                MemPoolInfo();
-                break;
-            case KGMALLOCV2_ALLOCATOR:
-                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
-                break;
-            default:
-                break;
+                gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
+                switch (type)
+                {
+                case KGMALLOC_ALLOCATOR:
+                    MemPoolInfo();
+                    break;
+                case KGMALLOCV2_ALLOCATOR:
+                    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                    break;
+                default:
+                    break;
+                }
+                throw "";
+                return -1;
             }
-            throw "";
-        }
-        output_data.clear();
-        // 恢复
-        d_output.reset(d_output_ptr);
-#endif
+            output_data.clear();
+            // 恢复
+            d_output.reset(d_output_ptr);
+        } while (0);
     }
+
     for (int i = 0; i < 2; i++)
         fout[i].close();
 
+    // 销毁输出显存
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        global_allocator->free(d_output.get()[i]);
+    }
+    // 销毁执行显存
+    global_allocator->free(execution_memory_1);
+    global_allocator->free(execution_memory_2);
     return 0;
 }
 

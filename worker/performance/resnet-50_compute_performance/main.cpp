@@ -148,7 +148,7 @@ int main(int argc, char **argv)
     }
 
     d_input.get_deleter().current_length = ef.InputName.size();
-    
+
     memset(d_input.get(), 0, sizeof(void *) * ef.InputName.size());
     memset(d_output.get(), 0, sizeof(void *) * ef.OutputName.size());
 
@@ -314,6 +314,31 @@ int main(int argc, char **argv)
         }
     }
 
+
+
+    // fix: 当前output显存已经被释放了，要重新申请
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        uint64_t size;
+        int executed = GetModelOutputSize("resnet-50", i, &size);
+        if (executed != 0)
+        {
+            gLogError << __CXX_PREFIX << "Can not get resnet-50 output size"
+                      << endl;
+            return -1;
+        }
+        d_output.get()[i] = global_allocator->allocate(size, alignment, 0);
+        if (!d_output.get()[i])
+        {
+            // 释放从0~i-1的所有显存
+            for (int j = 0; j < i; j++)
+                global_allocator->free(d_output.get()[j]);
+            gLogError << __CXX_PREFIX << "allocating for device memory failed."
+                      << endl;
+            return -1;
+        }
+    }
+
     // 创建上下文
     std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
         ctx1(ef.engine->createExecutionContextWithoutDeviceMemory());
@@ -322,25 +347,27 @@ int main(int argc, char **argv)
         gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
         return -1;
     }
-#if NV_TENSORRT_MAJOR >= 7
-    uint64_t execute_memory_size = ef.engine->getDeviceMemorySize();
-    void *execution_memory = global_allocator->allocate(execute_memory_size, alignment, 0);
-    if (!execution_memory)
+    void *execution_memory_1 = ContextSetDeviceMemory(ctx1.get(), global_allocator.get());
+    if (!execution_memory_1)
     {
-        gLogError << __CXX_PREFIX << "Can not allocate execution memory for engine " << ef.engine.get()->getName() << " execution."
-                  << endl;
+        throw "";
         return -1;
     }
-#endif
 
-#if NV_TENSORRT_MAJOR < 7
-    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
+    // 创建上下文
+    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
+        ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
     if (!ctx2)
     {
         gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
         return -1;
     }
-#endif
+    void *execution_memory_2 = ContextSetDeviceMemory(ctx2.get(), global_allocator.get());
+    if (!execution_memory_2)
+    {
+        throw "";
+        return -1;
+    }
 
     int executed = 0;
     for (int i = 1; i <= execution_time; i++)
@@ -351,66 +378,74 @@ int main(int argc, char **argv)
         }
 
         void **d_output_ptr;
-        // 暂时解除智能指针的托管
-        d_output_ptr = d_output.release();
-#if NV_TENSORRT_MAJOR < 7
-        _CXX_MEASURE_TIME(executed = computation_worker.Compute("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
-#else
-        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
-#endif
-        if (executed != 0)
+        do
         {
-            gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            switch (type)
+            // 暂时解除智能指针的托管
+            d_output_ptr = d_output.release();
+            _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+            // #endif
+            if (executed != 0)
             {
-            case KGMALLOC_ALLOCATOR:
-                MemPoolInfo();
-                break;
-            case KGMALLOCV2_ALLOCATOR:
-                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
-                break;
-            default:
-                break;
+                gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
+                switch (type)
+                {
+                case KGMALLOC_ALLOCATOR:
+                    MemPoolInfo();
+                    break;
+                case KGMALLOCV2_ALLOCATOR:
+                    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                    break;
+                default:
+                    break;
+                }
+                throw "";
+                return -1;
             }
-            throw "";
-            return -1;
-        }
-        output_data.clear();
-        // 恢复
-        d_output.reset(d_output_ptr);
+            output_data.clear();
+            // 恢复
+            d_output.reset(d_output_ptr);
+        } while (0);
 
-#if NV_TENSORRT_MAJOR < 7 // TensorRT 7好像并不支持流式传输重用上下文
-        // 暂时解除智能指针的托管
-        d_output_ptr = d_output.release();
-        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
-        if (executed != 0)
+
+        do
         {
-            gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-            switch (type)
+            // 暂时解除智能指针的托管
+            d_output_ptr = d_output.release();
+            _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStreamWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
+            if (executed != 0)
             {
-            case KGMALLOC_ALLOCATOR:
-                MemPoolInfo();
-                break;
-            case KGMALLOCV2_ALLOCATOR:
-                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
-                break;
-            default:
-                break;
+                gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
+                switch (type)
+                {
+                case KGMALLOC_ALLOCATOR:
+                    MemPoolInfo();
+                    break;
+                case KGMALLOCV2_ALLOCATOR:
+                    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                    break;
+                default:
+                    break;
+                }
+                throw "";
+                return -1;
             }
-            throw "";
-            return -1;
-        }
-        output_data.clear();
-        // 恢复
-        d_output.reset(d_output_ptr);
-#endif
+            output_data.clear();
+            // 恢复
+            d_output.reset(d_output_ptr);
+        } while (0);
     }
+
     for (int i = 0; i < 2; i++)
         fout[i].close();
-#if NV_TENSORRT_MAJOR >= 7
-    // 释放ctx device memory
-    global_allocator->free(execution_memory);
-#endif
+    
+    // 销毁输出显存
+    for (int i = 0; i < ef.OutputName.size(); i++)
+    {
+        global_allocator->free(d_output.get()[i]);
+    }
+    // 销毁执行显存
+    global_allocator->free(execution_memory_1);
+    global_allocator->free(execution_memory_2);
     return 0;
 }
 
