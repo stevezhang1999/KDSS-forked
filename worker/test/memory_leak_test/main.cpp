@@ -33,7 +33,7 @@ int main(int argc, char **argv)
     ComputationWorker computation_worker;
 
     int loaded;
-    loaded = transfer_worker.LoadFromEngineFile("mnist", "mnist.tengine", "/home/lijiakang/TensorRT-6.0.1.5/data/mnist/", {"Input3"}, {"Plus214_Output_0"});
+    loaded = transfer_worker.LoadFromEngineFile("mnist", "mnist.tengine", "/home/lijiakang/KDSS/model/", {"Input3"}, {"Plus214_Output_0"});
     if (loaded == -1)
     {
         gLogFatal << "Loading mnist model into memory failed."
@@ -69,7 +69,7 @@ int main(int argc, char **argv)
 
     std::vector<uint8_t> fileData(28 * 28 * sizeof(float));
     // int mNumber = rand() % 10;
-    readPGMFile("/home/lijiakang/TensorRT-6.0.1.5/data/mnist/1.pgm", fileData.data(), 28, 28);
+    readPGMFile("/home/lijiakang/TensorRT-7.1.3.4/data/mnist/1.pgm", fileData.data(), 28, 28);
     auto input_size = 28 * 28;
     float test_data[28 * 28];
     memset(test_data, 0, sizeof(float) * 28 * 28);
@@ -152,7 +152,6 @@ int main(int argc, char **argv)
         output_data.clear();
         // 恢复
         d_output.reset(d_output_ptr);
-#if NV_TENSORRT_MAJOR <= 6 // TensorRT 7好像并不支持流式传输重用上下文
         // 暂时解除智能指针的托管
         d_output_ptr = d_output.release();
         executed = computation_worker.ComputeWithStream("mnist", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef);
@@ -165,7 +164,6 @@ int main(int argc, char **argv)
         output_data.clear();
         // 恢复
         d_output.reset(d_output_ptr);
-#endif
         loop_time++;
     }
     return 0;
