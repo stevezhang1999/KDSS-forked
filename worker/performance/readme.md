@@ -23,7 +23,7 @@ make
 
 ~~在TensorRT 7中，上下文的执行显存不允许二次设置。TensorRT 6中这是允许的。因此，为了统一表现，在TensorRT 6和TensorRT 7中，均不允许复用```Compute```和```ComputeWithStream```消费过的IExecuteContext指针。~~已经修复好了，TensorRT 7也可以流式和串行都可以上下文复用的。
 
-如果使用自定义ctx调用```Compute```及```ComputeWithStream```，请不要复用该ctx（也不用且不需要调用destroy销毁它）。
+~~如果使用自定义ctx调用```Compute```及```ComputeWithStream```，请不要复用该ctx（也不用且不需要调用destroy销毁它）。~~
 
 ## 3.批量计算
 
