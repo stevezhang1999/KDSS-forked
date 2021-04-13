@@ -75,7 +75,7 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
                       << endl;
             return -1;
         }
-        gLogInfo << "Compute on device " << device << ".\n";
+        gLogInfo << "Compute on device " << device << "." << endl;
     }
     EngineInfo ef;
     nvinfer1::ICudaEngine *engine;
@@ -109,7 +109,7 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
     }
     else
     {
-        gLogWarning << "Call Compute with own context has been depreated. To reuse context, use ComputeWithoutExecDeviceMemory instead." << endl;
+        // gLogWarning << "Call Compute with own context has been depreated. To reuse context, use ComputeWithoutExecDeviceMemory instead." << endl;
         context = nullptr;
         if (eInfo == nullptr)
         {
@@ -202,12 +202,6 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
     // 释放执行显存
     allocator->free(execution_memory);
 
-    // 防止ctx被复用，及时发现错误
-    if (ctx != nullptr)
-    {
-        gLogWarning << __CXX_PREFIX << "ctx has been called destroy(), don't reuse it." << endl;
-        ctx->destroy();
-    }
     return 0;
 }
 
@@ -268,7 +262,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     }
     else
     {
-        gLogWarning << "Call ComputeWithStream with own context has been depreated. To reuse context, use ComputeWithStreamWithoutExecDeviceMemory instead." << endl;
+        // gLogWarning << "Call ComputeWithStream with own context has been depreated. To reuse context, use ComputeWithStreamWithoutExecDeviceMemory instead." << endl;
         context = nullptr;
         if (eInfo == nullptr)
         {
@@ -340,33 +334,33 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     // 将模型计算任务加入到CUDA流
     bool status;
     if (ctx == nullptr)
-        status = context->enqueue(1, buffers.get(), stream, nullptr);
-    else
-        status = ctx->enqueue(1, buffers.get(), stream, nullptr);
-    if (!status)
     {
-        gLogError << __CXX_PREFIX << "Execute model failed!"
-                  << endl;
-        return -1;
+#if NV_TENSORRT_MAJOR < 7
+        status = context->enqueue(1, buffers.get());
+#else
+        status = context->enqueueV2(buffers.get(), stream, nullptr);
+#endif
+    }
+    else
+    {
+#if NV_TENSORRT_MAJOR < 7
+        status = ctx->enqueue(1, buffers.get());
+#else
+        status = ctx->enqueueV2(buffers.get(), stream, nullptr);
+#endif
     }
 
     check_cuda_success(cudaStreamSynchronize(stream), res);
-
     if (res != 0)
     {
         gLogError << __CXX_PREFIX << "Can not synchrnonize cuda stream."
                   << endl;
         return -1;
     }
+    
     // 释放执行显存
     allocator->free(execution_memory);
 
-    // 防止ctx被复用
-    if (ctx != nullptr)
-    {
-        gLogWarning << __CXX_PREFIX << "ctx has been called destroy(), don't reuse it." << endl;
-        ctx->destroy();
-    }
     // 销毁CUDA stream
     check_cuda_success(cudaStreamDestroy(stream), res);
     if (res != 0)
