@@ -244,6 +244,11 @@ int TransferWorker::LoadFromEngineFile(std::string model_name, std::string model
 
     IRuntime *runtime = createInferRuntime(gLogger.getTRTLogger());
     std::string serialize_str = getTRTEngine(file_path, model_file);
+    if (serialize_str.length() == 0)
+    {
+        gLogError << "TensorRT engine not exist." << endl;
+        return -1;
+    }
     auto mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(runtime->deserializeCudaEngine(serialize_str.data(), serialize_str.size()), samplesCommon::InferDeleter());
     runtime->destroy();
 
