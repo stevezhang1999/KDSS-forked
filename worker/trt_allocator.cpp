@@ -430,6 +430,9 @@ void *KGAllocatorV2::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
 #ifdef __DEBUG
     INSERT_ALLOCATOR_V2_DEBUG_INFO("[DEBUG] After kgallocator v2 allocate:");
 #endif
+
+    gLogInfo << __CXX_PREFIX << "Call allocate: " << size  << " B "  << slab->chunks.back()->d_ptr << endl;
+
     return slab->chunks.back()->d_ptr;
 }
 
@@ -528,6 +531,7 @@ void KGAllocatorV2::free(void *memory)
 #ifdef __DEBUG
     INSERT_ALLOCATOR_V2_DEBUG_INFO("[DEBUG] After kgallocator v2 allocate:");
 #endif
+    gLogInfo << __CXX_PREFIX << "Call free: " << memory  << endl;
     return;
 }
 

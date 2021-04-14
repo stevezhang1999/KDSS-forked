@@ -48,7 +48,7 @@ int main(int argc, char **argv)
     if (!fin)
     {
         // DefaultAllocator *df = new DefaultAllocator();
-        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/zhanghaoying/KDSS/model/", ONNX_FILE, nullptr, 256_MiB);
+        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/zhanghaoying/KDSS/model/", ONNX_FILE, global_allocator.get(), 256_MiB);
         // delete df;s
         if (loaded == -1)
         {
@@ -56,13 +56,15 @@ int main(int argc, char **argv)
             return loaded;
         }
         gLogInfo << "Loading resnet-50 model into memory successfully." << endl;
-        int saved = transfer_worker.SaveModel("resnet-50", "/home/zhanghaoying/KDSS/model", "resnet-50.tengine");
+        //printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+        int saved = transfer_worker.SaveModel("resnet-50", "/home/zhanghaoying/KDSS/model/", "resnet-50.tengine");
         if (saved != 0)
         {
             gLogFatal << "Saving resnet-50 model into disk failed." << endl;
             return saved;
         }
         gLogInfo << "Saving resnet-50 model into disk successfully." << endl;
+        //printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
     }
     else
     {
@@ -73,6 +75,7 @@ int main(int argc, char **argv)
             gLogFatal << "Loading resnet-50 model into memory failed." << endl;
             return loaded;
         }
+        //printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
     }
 
     gLogInfo << "Running model resnet-50 performance test..." << endl;
