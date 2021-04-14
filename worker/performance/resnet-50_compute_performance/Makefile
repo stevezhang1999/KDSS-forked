@@ -2,7 +2,7 @@ CXX := g++
 CC := gcc
 
 TRT_PATH := $(TENSORRT_PATH)
-KGMALLOC_PATH := /home/lijiakang/kgmalloc
+KGMALLOC_PATH := /home/zhanghaoying/kgmalloc
 OPENCV_PATH := /usr/local
 
 CUDA_INCLUDE_DIR := /usr/local/cuda/include
@@ -30,6 +30,12 @@ LIB_DIR := $(CUDA_LIB_DIR)
 LIB_DIR += -L$(TRT_LIB_DIR)
 LIB_DIR += -L$(KGMALLOC_LIB_DIR)
 LIB_DIR += -L$(OPENCV_LIB_DIR)
+
+HASH_LIB_DIR += $(KGMALLOC_PATH)/hash
+UMAP_LIB_DIR += $(KGMALLOC_PATH)/umap
+
+LIB_DIR += -L$(HASH_LIB_DIR)
+LIB_DIR += -L$(UMAP_LIB_DIR)
 
 CUDA_LIBS := -lcudnn -lcublas -lcudart -lcurand -lnvidia-ml
 TRT_LIBS := -lnvinfer -lnvparsers -lnvinfer_plugin -lnvonnxparser

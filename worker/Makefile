@@ -8,7 +8,7 @@ CC := gcc
 
 ifeq ($(ARCH) , $(LINUX))
 	TRT_PATH := $(TENSORRT_PATH)
-	KGMALLOC_PATH := /home/lijiakang/kgmalloc
+	KGMALLOC_PATH := /home/zhanghaoying/kgmalloc
 	CUDA_INCLUDE_DIR := /usr/local/cuda/include
 	CUDA_LIB_DIR := /usr/local/cuda/lib64
 	TRT_INCLUDE_DIR := $(TRT_PATH)/include

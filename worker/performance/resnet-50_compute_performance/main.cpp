@@ -44,11 +44,11 @@ int main(int argc, char **argv)
     ComputationWorker computation_worker;
 
     int loaded;
-    ifstream fin(std::string("/home/lijiakang/KDSS/model/") + std::string("resnet-50.tengine"));
+    ifstream fin(std::string("/home/zhanghaoying/KDSS/model/") + std::string("resnet-50.tengine"));
     if (!fin)
     {
         // DefaultAllocator *df = new DefaultAllocator();
-        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, nullptr, 256_MiB);
+        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/zhanghaoying/KDSS/model/", ONNX_FILE, nullptr, 256_MiB);
         // delete df;s
         if (loaded == -1)
         {
@@ -56,7 +56,7 @@ int main(int argc, char **argv)
             return loaded;
         }
         gLogInfo << "Loading resnet-50 model into memory successfully." << endl;
-        int saved = transfer_worker.SaveModel("resnet-50", "/home/lijiakang/KDSS/model/", "resnet-50.tengine");
+        int saved = transfer_worker.SaveModel("resnet-50", "/home/zhanghaoying/KDSS/model", "resnet-50.tengine");
         if (saved != 0)
         {
             gLogFatal << "Saving resnet-50 model into disk failed." << endl;
@@ -67,7 +67,7 @@ int main(int argc, char **argv)
     else
     {
         fin.close();
-        loaded = transfer_worker.LoadFromEngineFile("resnet-50", "resnet-50.tengine", "/home/lijiakang/KDSS/model/", vector<string>{"data"}, vector<string>{"resnetv17_dense0_fwd"});
+        loaded = transfer_worker.LoadFromEngineFile("resnet-50", "resnet-50.tengine", "/home/zhanghaoying/KDSS/model/", vector<string>{"data"}, vector<string>{"resnetv17_dense0_fwd"});
         if (loaded == -1)
         {
             gLogFatal << "Loading resnet-50 model into memory failed." << endl;
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
 
     // 先读取类目表
     vector<string> cat;
-    int read = readCategory("synset.txt", "/home/lijiakang/KDSS/test_data/resnet-50/", cat);
+    int read = readCategory("synset.txt", "/home/zhanghaoying/KDSS/test_data/resnet-50/", cat);
     if (read != 0 || cat.size() != 1000)
     {
         gLogFatal << "Can not read category for resnet-50, exiting..." << endl;
@@ -158,8 +158,8 @@ int main(int argc, char **argv)
 
     // 输入预处理
     // resnet-50的输入为图片，所以需要引入opencv
-    const string prefix = "/home/lijiakang/KDSS/test_data/resnet-50/cat/";
-    for (auto pic : {"tabby_tiger_cat.jpg", "cat_1.jpg", "cat_2.jpg"})
+    const string prefix = "/home/zhanghaoying/KDSS/test_data/resnet-50/cat/";
+    for (auto pic : {"sand_cat.jpg", "lesser_panda.jpg"})
     {
         // 申请device端output空间，该空间会在TransferOutput时被释放掉
         for (int i = 0; i < ef.OutputName.size(); i++)
