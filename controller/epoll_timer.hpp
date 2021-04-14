@@ -68,32 +68,18 @@ public:
     }
 };
 
-// Concurrent_unordered_map unordered_map的并发安全版本
-template <typename _Key, typename _Tp>
-class Concurrent_unordered_map
+template <typename T>
+class ConcurrentDS
 {
-private:
-    RWMutex mu;
-    std::unordered_map<_Key, _Tp> umap;
-
 public:
-    Concurrent_unordered_map()
-    {
-    }
-
-    ~Concurrent_unordered_map()
-    {
-    }
-
-    void insert(pair<_Key, _Tp> &_p)
-    {
-        std::lock_guard<mutex>(mu);
-        return umap.insert(_p);
-    }
-
-protected:
-    Concurrent_unordered_map(const Concurrent_unordered_map &){};
-    Concurrent_unordered_map &operator=(const Concurrent_unordered_map &){};
+    ConcurrentDS() {}
+    ConcurrentDS(T &element) : e(element) {}
+    void rlock() { return mu.rlock(); }
+    void runlock() { return mu.runlock(); }
+    void lock() { return mu.lock(); }
+    void unlock() { return mu.unlock(); }
+    T e = T();
+    RWMutex mu;
 };
 
 class EpollTaskHandler final : public IEventHandler
@@ -124,7 +110,8 @@ public:
 
     // CancelEvent 试图取消一个正在执行的事件。
     // 该函数可能会导致事件的异常，这取决于事件是否可以被取消，以及被取消的后果如何。
-    // 对于EpollTaskHandler来说，已开始执行的事件，不可取消。
+    // 对于EpollTaskHandler来说，已开始执行的事件，只可以在指定的四个取消点（传输输入前，推理执行前，传输输出前，线程终止前）被取消。
+    // 其余过程均不可被取消。
     // \param event_id 需要取消的事件ID
     // \returns 不返回任何值。
     virtual void CancelEvent(uint64_t event_id);
@@ -136,9 +123,7 @@ public:
 private:
     // int - 底层的timer_id
     // ComputeTask - 待执行的事件指针
-    std::vector<pair<int, ComputeTask *>> event_pool;
-    // ep_locker event_poll线程锁
-    std::mutex ep_locker;
+    ConcurrentDS<std::vector<pair<int, ComputeTask *>>> event_pool;
     // ep_sem event_poll信号量，当event_poll没有任务时，ep_sem负责阻塞epoll_wait。
     sem_t ep_sem;
     // 全局唯一epoll file description
@@ -148,27 +133,23 @@ private:
     // cancel_point，用于优雅地杀死listen_thread
     Concurrent_atomic<bool> cancel_point;
     // task_queue 当前需要计算的任务的队列
-    std::queue<ComputeTask *> task_queue;
-    // task_queue_locker
-    std::mutex tq_locker;
+    ConcurrentDS<std::queue<ComputeTask *>> task_queue;
     // task_queue_sem 当前队列信号量
     sem_t tq_sem;
     // last_executing_task_id 当前或最后一个被执行的task的task_id，并发安全
     Concurrent_atomic<uint64_t> last_executing_task_id;
     // delete_task_poll 已经被取消的task_id的集合
-    std::unordered_map<uint64_t, bool> delete_task_poll;
+    ConcurrentDS<std::unordered_map<uint64_t, bool>> delete_task_poll;
     // wait_poll 正在等待完成的等待池
-    std::unordered_map<uint64_t, std::condition_variable *> wait_poll;
-    // wp_locker 等待池线程锁
-    std::mutex wp_locker;
+    ConcurrentDS<std::unordered_map<uint64_t, std::condition_variable *>> wait_poll;
     // listen thread，用于监听epoll
     std::thread *listen_thread;
+    // execute thread，用于执行任务
+    std::thread *execute_thread;
 
 public:
     // listen_func，用于listen_thread的处理函数
     std::function<void(EpollTaskHandler *)> listen_func();
-    // execute thread，用于执行任务
-    std::thread *execute_thread;
     // execute_func，用于execute_thread的处理函数
     std::function<void(EpollTaskHandler *)> execute_func();
 };

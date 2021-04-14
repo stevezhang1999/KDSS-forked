@@ -200,8 +200,8 @@ std::function<void(EpollTaskHandler *)> EpollTaskHandler::listen_func()
                 if (events[i].events & EPOLLIN)
                 {
                     // find the task
-                    eeh->ep_locker.lock();
-                    for (auto iter = eeh->event_pool.begin(); iter != eeh->event_pool.end(); ++iter)
+                    eeh->event_pool.lock();
+                    for (auto iter = eeh->event_pool.e.begin(); iter != eeh->event_pool.e.end(); ++iter)
                     {
                         if ((*iter).first == events[i].data.fd)
                         {
@@ -230,16 +230,16 @@ std::function<void(EpollTaskHandler *)> EpollTaskHandler::listen_func()
                                 std::terminate();
                             }
                             // put the task into execute queue (producer)
-                            eeh->tq_locker.lock();
-                            eeh->task_queue.push(task);
+                            eeh->task_queue.lock();
+                            eeh->task_queue.e.push(task);
                             sem_post(&eeh->tq_sem);
-                            eeh->tq_locker.unlock();
-                            eeh->event_pool.erase(iter);
-                            make_heap(eeh->event_pool.begin(), eeh->event_pool.end());
+                            eeh->task_queue.unlock();
+                            eeh->event_pool.e.erase(iter);
+                            make_heap(eeh->event_pool.e.begin(), eeh->event_pool.e.end());
                             break;
                         }
                     }
-                    eeh->ep_locker.unlock();
+                    eeh->event_pool.unlock();
                 }
             }
         }
@@ -265,15 +265,15 @@ std::function<void(EpollTaskHandler *)> EpollTaskHandler::execute_func()
                 // cancel point, before close sem, we need to set eeh->cancel_point and then call sem_post in order to unblock the execute_func.
                 break;
             }
-            eeh->tq_locker.lock();
-            auto task = eeh->task_queue.front();
-            eeh->task_queue.pop();
-            eeh->tq_locker.unlock();
-            auto iter = eeh->delete_task_poll.find(task->task_id);
-            if (iter != eeh->delete_task_poll.end())
+            eeh->task_queue.lock();
+            auto task = eeh->task_queue.e.front();
+            eeh->task_queue.e.pop();
+            eeh->task_queue.unlock();
+            auto iter = eeh->delete_task_poll.e.find(task->task_id);
+            if (iter != eeh->delete_task_poll.e.end())
             {
                 // This task has been deleted by DeleteEvent
-                eeh->delete_task_poll.erase(iter);
+                eeh->delete_task_poll.e.erase(iter);
                 continue;
             }
             if (task->magic_number != COMPUTE_TASK_MAGIC_NUMBER)
@@ -295,13 +295,13 @@ std::function<void(EpollTaskHandler *)> EpollTaskHandler::execute_func()
             {
                 LOGWARNING("Warning: task %ld may exceed deadline.", task->task_id);
             }
-            eeh->wp_locker.lock();
-            auto wp_iter = eeh->wait_poll.find(task->task_id);
-            if (wp_iter != eeh->wait_poll.end())
+            eeh->wait_poll.rlock();
+            auto wp_iter = eeh->wait_poll.e.find(task->task_id);
+            if (wp_iter != eeh->wait_poll.e.end())
             {
                 wp_iter->second->notify_one();
             }
-            eeh->wp_locker.unlock();
+            eeh->wait_poll.runlock();
             LOGINFO("Task %ld executed.", task->task_id);
         }
         LOGINFO("exeucte_thread exiting...");
@@ -374,8 +374,8 @@ EpollTaskHandler::~EpollTaskHandler()
     }
     this->listen_thread->join();
     delete this->listen_thread;
-    this->wait_poll.clear();
-    this->delete_task_poll.clear();
+    this->wait_poll.e.clear();
+    this->delete_task_poll.e.clear();
     this->last_executing_task_id = 0;
     // destroy task queue semaphore
     if (sem_destroy(&this->tq_sem) < 0)
@@ -400,7 +400,7 @@ EpollTaskHandler::~EpollTaskHandler()
         LOGERROR("Can not post to this->ep_sem.");
         std::terminate();
     }
-    this->event_pool.clear();
+    this->event_pool.e.clear();
 }
 
 uint64_t EpollTaskHandler::AddEvent(uint64_t ts, void *event)
@@ -443,11 +443,11 @@ uint64_t EpollTaskHandler::AddTask(uint64_t ts, ComputeTask *task)
     uint64_t ret_id = this->event_id.load();
     task->task_id = ret_id;
     this->event_id = ((ret_id + 1) % UINT64_MAX);
-    this->ep_locker.lock();
-    this->event_pool.push_back(pair<int, ComputeTask *>(tfd, task));
+    this->event_pool.lock();
+    this->event_pool.e.push_back(pair<int, ComputeTask *>(tfd, task));
     // construct min-heap
-    make_heap(this->event_pool.begin(), this->event_pool.end(), [](pair<int, ComputeTask *> e1, pair<int, ComputeTask *> e2) { return e1.second->end_timestamp < e2.second->end_timestamp; });
-    this->ep_locker.unlock();
+    make_heap(this->event_pool.e.begin(), this->event_pool.e.end(), [](pair<int, ComputeTask *> e1, pair<int, ComputeTask *> e2) { return e1.second->end_timestamp < e2.second->end_timestamp; });
+    this->event_pool.unlock();
     if (sem_post(&(this->ep_sem)) < 0)
     {
         LOGERROR("Post to ep_sem failed.");
@@ -461,7 +461,9 @@ int EpollTaskHandler::DeleteEvent(uint64_t event_id)
 {
     if (event_id > this->last_executing_task_id.load())
     {
-        this->delete_task_poll.insert(pair<uint64_t, bool>(event_id, true));
+        this->delete_task_poll.lock();
+        this->delete_task_poll.e.insert(pair<uint64_t, bool>(event_id, true));
+        this->delete_task_poll.unlock();
         return 0;
     }
     return -1;
@@ -474,9 +476,9 @@ void EpollTaskHandler::WaitEvent(uint64_t event_id)
     std::unique_lock<std::mutex> lk(mu);
     while (this->last_executing_task_id.load() < event_id)
     {
-        this->wp_locker.lock();
-        this->wait_poll.insert(pair<uint64_t, condition_variable *>(event_id, &cv));
-        this->wp_locker.unlock();
+        this->wait_poll.lock();
+        this->wait_poll.e.insert(pair<uint64_t, condition_variable *>(event_id, &cv));
+        this->wait_poll.unlock();
         cv.wait(lk);
     }
     lk.unlock();
@@ -491,14 +493,14 @@ void EpollTaskHandler::CancelEvent(uint64_t event_id)
 uint64_t EpollTaskHandler::GetNextEvent()
 {
     uint64_t res = 0;
-    this->tq_locker.lock();
-    if (this->task_queue.size() != 0)
-        res = this->task_queue.front()->task_id;
-    this->tq_locker.unlock();
+    this->task_queue.rlock();
+    if (this->task_queue.e.size() != 0)
+        res = this->task_queue.e.front()->task_id;
+    this->task_queue.runlock();
     if (res != 0)
         return res;
-    std::lock_guard<std::mutex>(this->ep_locker);
-    if (this->event_pool.size() == 0)
+    std::lock_guard<RWMutex>(this->event_pool.mu);
+    if (this->event_pool.e.size() == 0)
         return 0;
-    return this->event_pool.front().second->task_id;
+    return this->event_pool.e.front().second->task_id;
 }

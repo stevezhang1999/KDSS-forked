@@ -78,14 +78,14 @@ EXT_OBJS += $(KGMALLOC_PATH)/umap/umap.o
 all:rw_mutex $(TARGET)
 %.o:%.cpp
 	@echo "Compling" $<
-	$(CXX) -c $< $(CFLAGS) 
+	$(CXX) -g -c $< $(CFLAGS) 
 $(TARGET):$(OBJS)
 	@echo "Linking to demo..."
 	$(CXX) $(CFLAGS) -o $@ $(EXT_OBJS) $^
 
 rw_mutex:
 	@echo "Compiling" ../util/RWMutex/rwmutex.cpp
-	$(CXX) -c ../util/RWMutex/rwmutex.cpp -o ../util/RWMutex/rwmutex.o -std=c++11
+	$(CXX) -g -c ../util/RWMutex/rwmutex.cpp -o ../util/RWMutex/rwmutex.o -std=c++11
 .PHONY : clean
 clean:
 ifeq ($(ARCH),$(LINUX))
