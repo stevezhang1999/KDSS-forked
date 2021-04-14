@@ -352,7 +352,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     if (ctx == nullptr)
     {
 #if NV_TENSORRT_MAJOR < 7
-        status = context->enqueue(1, buffers.get(), stream, nulptr);
+        status = context->enqueue(1, buffers.get(), stream.get(), nullptr);
 #else
         status = context->enqueueV2(buffers.get(), stream.get(), nullptr);
 #endif
@@ -360,7 +360,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     else
     {
 #if NV_TENSORRT_MAJOR < 7
-        status = context->enqueue(1, buffers.get(), stream, nulptr);
+        status = context->enqueue(1, buffers.get(), stream.get(), nullptr);
 #else
         status = ctx->enqueueV2(buffers.get(), stream.get(), nullptr);
 #endif
