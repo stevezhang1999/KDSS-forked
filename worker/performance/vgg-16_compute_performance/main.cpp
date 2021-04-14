@@ -47,9 +47,7 @@ int main(int argc, char **argv)
     ifstream fin(std::string("/home/lijiakang/KDSS/model/") + std::string("vgg-16.tengine"));
     if (!fin)
     {
-        // DefaultAllocator *df = new DefaultAllocator();
-        loaded = transfer_worker.LoadModel("vgg-16", "vgg16-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, nullptr, 512_MiB);
-        // delete df;s
+        loaded = transfer_worker.LoadModel("vgg-16", "vgg16-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, global_allocator.get(), 512_MiB);
         if (loaded == -1)
         {
             gLogFatal << "Loading vgg-16 model into memory failed." << endl;

@@ -47,9 +47,7 @@ int main(int argc, char **argv)
     ifstream fin(std::string("/home/lijiakang/KDSS/model/") + std::string("resnet-50.tengine"));
     if (!fin)
     {
-        // DefaultAllocator *df = new DefaultAllocator();
-        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, nullptr, 256_MiB);
-        // delete df;s
+        loaded = transfer_worker.LoadModel("resnet-50", "resnet50-v1-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, global_allocator.get(), 256_MiB);
         if (loaded == -1)
         {
             gLogFatal << "Loading resnet-50 model into memory failed." << endl;

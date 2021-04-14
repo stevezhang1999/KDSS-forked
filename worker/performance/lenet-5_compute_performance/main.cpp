@@ -98,7 +98,7 @@ int main(int argc, char **argv)
 
     std::vector<uint8_t> fileData(28 * 28 * sizeof(float));
     // int mNumber = rand() % 10;
-    readPGMFile("/home/lijiakang/TensorRT-7.1.3.4/data/mnist/1.pgm", fileData.data(), 28, 28);
+    readPGMFile("/home/lijiakang/TensorRT-6.0.1.5/data/mnist/1.pgm", fileData.data(), 28, 28);
     auto input_size = 28 * 28;
     float test_data[28 * 28];
     memset(test_data, 0, sizeof(float) * 28 * 28);
