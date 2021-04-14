@@ -8,6 +8,7 @@
 
 #include <vector>
 #include <string>
+#include <functional>
 
 using namespace std;
 
@@ -47,9 +48,9 @@ public:
 
 protected:
     // No duplicate
-    ComputeTask(const ComputeTask &) {}
+    ComputeTask(const ComputeTask &);
     // No duplicate
-    ComputeTask &operator=(const ComputeTask &) {}
+    ComputeTask &operator=(const ComputeTask &);
 } ComputeTask;
 
 // A controller should have the functions of manipulating the computation task.
