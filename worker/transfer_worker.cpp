@@ -230,6 +230,11 @@ int TransferWorker::LoadModel(std::string model_name, std::string model_file, st
 
 int TransferWorker::LoadFromEngineFile(std::string model_name, std::string model_file, std::string file_path, std::vector<std::string> inTensorVec, std::vector<std::string> outTensorVec)
 {
+    return this->LoadFromEngineFile(model_name, model_file, file_path, inTensorVec, outTensorVec, global_allocator.get());
+}
+
+int TransferWorker::LoadFromEngineFile(std::string model_name, std::string model_file, std::string file_path, std::vector<std::string> inTensorVec, std::vector<std::string> outTensorVec, IGpuAllocator *allocator)
+{
     // 先查看engine_table是否已有同名引擎
     et_rw_mu.rlock();
     auto iter = engine_table.find(model_name);
@@ -244,6 +249,12 @@ int TransferWorker::LoadFromEngineFile(std::string model_name, std::string model
 
     IRuntime *runtime = createInferRuntime(gLogger.getTRTLogger());
     std::string serialize_str = getTRTEngine(file_path, model_file);
+    if (serialize_str.length() == 0)
+    {
+        gLogError << "TensorRT engine not exist." << endl;
+        return -1;
+    }
+    runtime->setGpuAllocator(allocator);
     auto mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(runtime->deserializeCudaEngine(serialize_str.data(), serialize_str.size()), samplesCommon::InferDeleter());
     runtime->destroy();
 
@@ -350,7 +361,7 @@ int TransferWorker::TransferInput(std::string model_name, const std::vector<std:
         {
             // This should not happen
             gLogWarning << __CXX_PREFIX << "Buffers not long enough, reallocating..."
-                     << endl;
+                        << endl;
             input_ptr = (void **)realloc(input_ptr, sizeof(void *) * input_i_index);
             if (!input_ptr)
             {

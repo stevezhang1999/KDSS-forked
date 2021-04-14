@@ -129,6 +129,16 @@ public:
     // \returns 该模型在全局的唯一索引，如果导入不成功，将会返回-1，并在logger中输出错误信息
     int LoadFromEngineFile(std::string model_name, std::string model_file, std::string file_path, std::vector<std::string> inTensorVec, std::vector<std::string> outTensorVec);
 
+    // LoadFromEngineFile 从TensorRT引擎文件加载模型
+    // \param model_name 模型名称，该名称需要与目前已被加载的模型均不同，是一个唯一标识模型的名称
+    // \param model_file 模型文件，为本机当前GPU生成的TensorRT引擎文件
+    // \param file_path 模型文件的路径
+    // \param inTensorVec 输入张量名称集合
+    // \param outTensorVec 输出张量名称集合
+    // \param allocator 需要使用的分配器
+    // \returns 该模型在全局的唯一索引，如果导入不成功，将会返回-1，并在logger中输出错误信息
+    int LoadFromEngineFile(std::string model_name, std::string model_file, std::string file_path, std::vector<std::string> inTensorVec, std::vector<std::string> outTensorVec,IGpuAllocator *allocator);
+
     // SaveModel 保存已经加载的模型
     // \param model_name 需要保存的模型的名称
     // \param model_path 需要保存的模型的路径

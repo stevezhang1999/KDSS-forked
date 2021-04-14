@@ -18,6 +18,31 @@ using std::endl;
 extern std::shared_ptr<nvinfer1::IGpuAllocator> global_allocator;
 extern uint64_t alignment;
 
+class cudaStreamDelegate
+{
+public:
+    cudaStreamDelegate()
+    {
+        int result = 0;
+        check_cuda_success(cudaStreamCreate(&stream), result);
+        if (result != 0)
+            std::terminate();
+    }
+    ~cudaStreamDelegate()
+    {
+        int result = 0;
+        check_cuda_success(cudaStreamDestroy(stream), result);
+        if (result != 0)
+            std::terminate();
+    }
+    cudaStream_t get() const { return stream; }
+
+private:
+    cudaStream_t stream = nullptr;
+};
+
+
+
 template <typename T>
 using SampleUniquePtr = std::unique_ptr<T, samplesCommon::InferDeleter>;
 
@@ -75,7 +100,7 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
                       << endl;
             return -1;
         }
-        gLogInfo << "Compute on device " << device << ".\n";
+        gLogInfo << "Compute on device " << device << "." << endl;
     }
     EngineInfo ef;
     nvinfer1::ICudaEngine *engine;
@@ -109,7 +134,7 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
     }
     else
     {
-        gLogWarning << "Call Compute with own context has been depreated. To reuse context, use ComputeWithoutExecDeviceMemory instead." << endl;
+        // gLogWarning << "Call Compute with own context has been depreated. To reuse context, use ComputeWithoutExecDeviceMemory instead." << endl;
         context = nullptr;
         if (eInfo == nullptr)
         {
@@ -202,12 +227,6 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
     // 释放执行显存
     allocator->free(execution_memory);
 
-    // 防止ctx被复用，及时发现错误
-    if (ctx != nullptr)
-    {
-        gLogWarning << __CXX_PREFIX << "ctx has been called destroy(), don't reuse it." << endl;
-        ctx->destroy();
-    }
     return 0;
 }
 
@@ -268,7 +287,7 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     }
     else
     {
-        gLogWarning << "Call ComputeWithStream with own context has been depreated. To reuse context, use ComputeWithStreamWithoutExecDeviceMemory instead." << endl;
+        // gLogWarning << "Call ComputeWithStream with own context has been depreated. To reuse context, use ComputeWithStreamWithoutExecDeviceMemory instead." << endl;
         context = nullptr;
         if (eInfo == nullptr)
         {
@@ -279,6 +298,9 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
         ef = *eInfo;
         engine = ef.engine.get();
     }
+
+    static cudaStreamDelegate stream;
+    int res = 0;
 
     // 为Engine分配执行显存
     uint64_t execute_memory_size = engine->getDeviceMemorySize();
@@ -293,22 +315,10 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     int output_num = ef.OutputName.size();
 
     // buffers是从外面来的，无需管理其显存
-
     CPUMemoryUniquePtr<void *> buffers(new void *[(input_num + output_num)]);
     if (!buffers)
     {
         gLogError << __CXX_PREFIX << "Buffer for computation alloc failed."
-                  << endl;
-        return -1;
-    }
-
-    // 创建CUDA stream
-    cudaStream_t stream;
-    int res = 0;
-    check_cuda_success(cudaStreamCreate(&stream), res);
-    if (res != 0)
-    {
-        gLogError << __CXX_PREFIX << "Can not create cuda stream."
                   << endl;
         return -1;
     }
@@ -340,41 +350,32 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
     // 将模型计算任务加入到CUDA流
     bool status;
     if (ctx == nullptr)
-        status = context->enqueue(1, buffers.get(), stream, nullptr);
-    else
-        status = ctx->enqueue(1, buffers.get(), stream, nullptr);
-    if (!status)
     {
-        gLogError << __CXX_PREFIX << "Execute model failed!"
-                  << endl;
-        return -1;
+#if NV_TENSORRT_MAJOR < 7
+        status = context->enqueue(1, buffers.get(), stream.get(), nullptr);
+#else
+        status = context->enqueueV2(buffers.get(), stream.get(), nullptr);
+#endif
+    }
+    else
+    {
+#if NV_TENSORRT_MAJOR < 7
+        status = context->enqueue(1, buffers.get(), stream.get(), nullptr);
+#else
+        status = ctx->enqueueV2(buffers.get(), stream.get(), nullptr);
+#endif
     }
 
-    check_cuda_success(cudaStreamSynchronize(stream), res);
-
+    check_cuda_success(cudaStreamSynchronize(stream.get()), res);
     if (res != 0)
     {
         gLogError << __CXX_PREFIX << "Can not synchrnonize cuda stream."
                   << endl;
         return -1;
     }
+
     // 释放执行显存
     allocator->free(execution_memory);
-
-    // 防止ctx被复用
-    if (ctx != nullptr)
-    {
-        gLogWarning << __CXX_PREFIX << "ctx has been called destroy(), don't reuse it." << endl;
-        ctx->destroy();
-    }
-    // 销毁CUDA stream
-    check_cuda_success(cudaStreamDestroy(stream), res);
-    if (res != 0)
-    {
-        gLogError << __CXX_PREFIX << "Can not destroy cuda stream."
-                  << endl;
-        return -1;
-    }
     return 0;
 }
 
@@ -495,6 +496,8 @@ int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, vo
     ef = *eInfo;
     engine = ef.engine.get();
 
+    static cudaStreamDelegate stream_without_execmem;
+
     // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
     int input_num = ef.InputName.size();
     int output_num = ef.OutputName.size();
@@ -508,16 +511,7 @@ int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, vo
         return -1;
     }
 
-    // 创建CUDA stream
-    cudaStream_t stream;
     int res = 0;
-    check_cuda_success(cudaStreamCreate(&stream), res);
-    if (res != 0)
-    {
-        gLogError << __CXX_PREFIX << "Can not create cuda stream."
-                  << endl;
-        return -1;
-    }
 
     // 处理host端input到device端input
     for (int i = 0; i < ef.InputName.size(); i++)
@@ -547,9 +541,9 @@ int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, vo
     bool status;
     // status = ctx->enqueue(1, buffers.get(), stream, nullptr);
 #if NV_TENSORRT_MAJOR < 7
-    status = ctx->enqueue(1, buffers.get(), stream, nullptr);
+    status = ctx->enqueue(1, buffers.get(), stream_without_execmem.get(), nullptr);
 #else
-    status = ctx->enqueueV2(buffers.get(), stream, nullptr);
+    status = ctx->enqueueV2(buffers.get(), stream_without_execmem.get(), nullptr);
 #endif
     if (!status)
     {
@@ -558,7 +552,7 @@ int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, vo
         return -1;
     }
 
-    check_cuda_success(cudaStreamSynchronize(stream), res);
+    check_cuda_success(cudaStreamSynchronize(stream_without_execmem.get()), res);
 
     if (res != 0)
     {
@@ -567,14 +561,6 @@ int ComputationWorker::ComputeWithStreamWithoutExecDeviceMemory(void **input, vo
         return -1;
     }
 
-    // 销毁CUDA stream
-    check_cuda_success(cudaStreamDestroy(stream), res);
-    if (res != 0)
-    {
-        gLogError << __CXX_PREFIX << "Can not destroy cuda stream."
-                  << endl;
-        return -1;
-    }
     return 0;
 }
 

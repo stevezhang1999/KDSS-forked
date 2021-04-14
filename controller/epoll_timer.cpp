@@ -60,8 +60,8 @@ public:
 
     // non duplicate
 protected:
-    PthreadDelegate(const PthreadDelegate &) {}
-    PthreadDelegate &operator=(const PthreadDelegate &) {}
+    PthreadDelegate(const PthreadDelegate &);
+    PthreadDelegate &operator=(const PthreadDelegate &);
 
 private:
     pthread_cond_t pt;
@@ -110,8 +110,8 @@ public:
 
     // non duplicate
 protected:
-    PthreadDelegate(const PthreadDelegate &) {}
-    PthreadDelegate &operator=(const PthreadDelegate &) {}
+    PthreadDelegate(const PthreadDelegate &);
+    PthreadDelegate &operator=(const PthreadDelegate &);
 
 private:
     pthread_mutex_t pt;
@@ -146,8 +146,8 @@ public:
 
     // non duplicate
 protected:
-    PthreadDelegate(const PthreadDelegate &) {}
-    PthreadDelegate &operator=(const PthreadDelegate &) {}
+    PthreadDelegate(const PthreadDelegate &);
+    PthreadDelegate &operator=(const PthreadDelegate &);
 
 private:
     sem_t sem;
@@ -155,7 +155,7 @@ private:
 
 std::function<void(EpollTaskHandler *)> EpollTaskHandler::listen_func()
 {
-    return function<void(EpollTaskHandler *)>([](EpollTaskHandler *eeh) {
+    return function<void(EpollTaskHandler *)>([](EpollTaskHandler *eeh) -> void {
         struct epoll_event *events = (struct epoll_event *)malloc(sizeof(struct epoll_event) * 32);
         if (NULL == events)
         {
@@ -219,6 +219,11 @@ std::function<void(EpollTaskHandler *)> EpollTaskHandler::listen_func()
                                 continue;
                             }
                             LOGINFO("Task %ld push into execute queue.", task->task_id);
+                            if (epoll_ctl(eeh->epfd, EPOLL_CTL_DEL, events[i].data.fd, NULL) < 0)
+                            {
+                                LOGERROR("Can not remove timerfd from epoll for task %ld", task->task_id);
+                                continue;
+                            }
                             if (close(events[i].data.fd) < 0)
                             {
                                 LOGERROR("Can not close the timerfd for task %ld", task->task_id);
@@ -240,12 +245,13 @@ std::function<void(EpollTaskHandler *)> EpollTaskHandler::listen_func()
         }
         LOGINFO("listen_thread exiting...");
         free(events);
+        return;
     });
 }
 
 std::function<void(EpollTaskHandler *)> EpollTaskHandler::execute_func()
 {
-    return function<void(EpollTaskHandler *)>([](EpollTaskHandler *eeh) {
+    return function<void(EpollTaskHandler *)>([](EpollTaskHandler *eeh) -> void {
         while (!eeh->cancel_point.load())
         {
             // Get task (consumer)
@@ -283,7 +289,7 @@ std::function<void(EpollTaskHandler *)> EpollTaskHandler::execute_func()
             if (clock_gettime(CLOCK_REALTIME, &now) < 0)
             {
                 LOGFATAL("Can not get current time.");
-                return -1;
+                return;
             }
             if (now.tv_sec > task->end_timestamp)
             {
@@ -299,6 +305,7 @@ std::function<void(EpollTaskHandler *)> EpollTaskHandler::execute_func()
             LOGINFO("Task %ld executed.", task->task_id);
         }
         LOGINFO("exeucte_thread exiting...");
+        return;
     });
 }
 
@@ -416,7 +423,7 @@ uint64_t EpollTaskHandler::AddTask(uint64_t ts, ComputeTask *task)
     }
     struct itimerspec new_value;
     new_value.it_interval = timespec{1, 0};
-    new_value.it_value = timespec{ts, 0};
+    new_value.it_value = timespec{(long)ts, 0};
     struct epoll_event eevent;
     memset(&eevent, 0, sizeof(eevent));
     eevent.data.fd = tfd;

@@ -48,7 +48,7 @@ int main(int argc, char **argv)
     if (!fin)
     {
         // DefaultAllocator *df = new DefaultAllocator();
-        loaded = transfer_worker.LoadModel("vgg-16", "vgg16-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, nullptr, 256_MiB);
+        loaded = transfer_worker.LoadModel("vgg-16", "vgg16-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE, nullptr, 512_MiB);
         // delete df;s
         if (loaded == -1)
         {
@@ -338,112 +338,69 @@ int main(int argc, char **argv)
         }
     }
 
+    int executed = 0;
+
     // 创建上下文
     std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
         ctx1(ef.engine->createExecutionContextWithoutDeviceMemory());
     if (!ctx1)
     {
-        gLogFatal << __CXX_PREFIX << "Can not create execution context of vgg-16" << endl;
-        return -1;
-    }
-    void *execution_memory_1 = ContextSetDeviceMemory(ctx1.get(), global_allocator.get());
-    if (!execution_memory_1)
-    {
-        throw "";
+        gLogFatal << __CXX_PREFIX << "Can not create execution context of LeNet-5" << endl;
         return -1;
     }
 
-    // 创建上下文
-    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
-        ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
+    std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
     if (!ctx2)
     {
-        gLogFatal << __CXX_PREFIX << "Can not create execution context of vgg-16" << endl;
-        return -1;
-    }
-    void *execution_memory_2 = ContextSetDeviceMemory(ctx2.get(), global_allocator.get());
-    if (!execution_memory_2)
-    {
-        throw "";
+        gLogFatal << __CXX_PREFIX << "Can not create execution context of LeNet-5" << endl;
         return -1;
     }
 
-    int executed = 0;
     for (int i = 1; i <= execution_time; i++)
     {
         if (i % 100 == 0)
+            gLogInfo << "Executed " << i << " times" << endl;
+        // 暂时解除智能指针的托管
+        auto d_output_ptr = d_output.release();
+        _CXX_MEASURE_TIME(executed = computation_worker.Compute("vgg-16", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+        if (executed != 0)
         {
-            gLogInfo << "Test " << i << " times" << endl;
+            gLogError << __CXX_PREFIX << "Compute failed, exit..."
+                      << endl;
+            switch (type)
+            {
+            case KGMALLOC_ALLOCATOR:
+                MemPoolInfo();
+                break;
+            case KGMALLOCV2_ALLOCATOR:
+                printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+                break;
+            default:
+                break;
+            }
+            return -1;
         }
+        output_data.clear();
+        // 恢复
+        d_output.reset(d_output_ptr);
 
-        void **d_output_ptr;
-        do
+        // 暂时解除智能指针的托管
+        d_output_ptr = d_output.release();
+        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("vgg-16", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
+        if (executed != 0)
         {
-            // 暂时解除智能指针的托管
-            d_output_ptr = d_output.release();
-            _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
-            // #endif
-            if (executed != 0)
-            {
-                gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-                switch (type)
-                {
-                case KGMALLOC_ALLOCATOR:
-                    MemPoolInfo();
-                    break;
-                case KGMALLOCV2_ALLOCATOR:
-                    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
-                    break;
-                default:
-                    break;
-                }
-                throw "";
-                return -1;
-            }
-            output_data.clear();
-            // 恢复
-            d_output.reset(d_output_ptr);
-        } while (0);
-
-        do
-        {
-            // 暂时解除智能指针的托管
-            d_output_ptr = d_output.release();
-            _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStreamWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
-            if (executed != 0)
-            {
-                gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
-                switch (type)
-                {
-                case KGMALLOC_ALLOCATOR:
-                    MemPoolInfo();
-                    break;
-                case KGMALLOCV2_ALLOCATOR:
-                    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
-                    break;
-                default:
-                    break;
-                }
-                throw "";
-                return -1;
-            }
-            output_data.clear();
-            // 恢复
-            d_output.reset(d_output_ptr);
-        } while (0);
+            gLogError << __CXX_PREFIX << "Compute failed, exit..."
+                      << endl;
+            return -1;
+        }
+        output_data.clear();
+        // 恢复
+        d_output.reset(d_output_ptr);
     }
 
     for (int i = 0; i < 2; i++)
         fout[i].close();
 
-    // 销毁输出显存
-    for (int i = 0; i < ef.OutputName.size(); i++)
-    {
-        global_allocator->free(d_output.get()[i]);
-    }
-    // 销毁执行显存
-    global_allocator->free(execution_memory_1);
-    global_allocator->free(execution_memory_2);
     return 0;
 }
 

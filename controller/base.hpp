@@ -8,6 +8,7 @@
 
 #include <vector>
 #include <string>
+#include <functional>
 
 using namespace std;
 
@@ -24,7 +25,7 @@ const uint32_t COMPUTE_TASK_MAGIC_NUMBER = ('c' << 8) | ('t'); //'ct', 0x6374
 template <typename _Res, typename... _ArgTypes>
 using TaskFunc = std::function<_Res(_ArgTypes...)>;
 
-const auto EmptyTaskFunc = TaskFunc<void, void *, void *>([](void *, void *) { return; });
+const auto EmptyTaskFunc = TaskFunc<void, void *, void *>([](void *, void *) -> void { return; });
 
 typedef struct ComputeTask
 {
@@ -47,9 +48,9 @@ public:
 
 protected:
     // No duplicate
-    ComputeTask(const ComputeTask &) {}
+    ComputeTask(const ComputeTask &);
     // No duplicate
-    ComputeTask &operator=(const ComputeTask &) {}
+    ComputeTask &operator=(const ComputeTask &);
 } ComputeTask;
 
 // A controller should have the functions of manipulating the computation task.

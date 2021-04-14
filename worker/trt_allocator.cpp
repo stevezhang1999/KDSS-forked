@@ -268,7 +268,7 @@ void *DefaultAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t fla
         return nullptr;
     }
 #ifdef __DEBUG
-    gLogInfo << "Default allocator allocate " << d_ptr << " for size " << size << "." << endl;  
+    gLogInfo << "Default allocator allocate " << d_ptr << " for size " << size << "." << endl;
 #endif
     return d_ptr;
 }
@@ -383,7 +383,7 @@ void *KGAllocatorV2::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
                 INSERT_ALLOCATOR_V2_DEBUG_INFO("[DEBUG] After kgallocator v2 allocate:");
 #endif
                 this->mu.lock();
-                this->mapping.insert({slab->chunks.back()->d_ptr, slab->chunks.back()});
+                this->mapping.insert({(*iter)->d_ptr, *iter});
                 this->mu.unlock();
                 slab->free_chunk_num--;
                 slab->using_chunk_num++;

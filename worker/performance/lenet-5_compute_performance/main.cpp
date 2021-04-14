@@ -33,12 +33,20 @@ int main(int argc, char **argv)
     ComputationWorker computation_worker;
 
     int loaded;
-    loaded = transfer_worker.LoadFromEngineFile("mnist", "mnist.tengine", "/home/lijiakang/TensorRT-6.0.1.5/data/mnist/", {"Input3"}, {"Plus214_Output_0"});
+    loaded = transfer_worker.LoadFromEngineFile("mnist", "mnist.tengine", "/home/lijiakang/KDSS/model/", {"Input3"}, {"Plus214_Output_0"});
     if (loaded == -1)
     {
-        gLogFatal << "Loading mnist model into memory failed."
-                  << endl;
-        return loaded;
+        loaded = transfer_worker.LoadModel("mnist", "mnist-7.onnx", "/home/lijiakang/KDSS/model/", ONNX_FILE);
+        if (loaded == -1)
+        {
+            gLogFatal << "Loading mnist model into memory failed." << endl;
+            return loaded;
+        }
+        int saved = transfer_worker.SaveModel("mnist", "/home/lijiakang/KDSS/model/", "mnist.tengine");
+        if (saved == -1)
+        {
+            gLogWarning << "Saving mnist model into disk failed." << endl;
+        }
     }
 
     int execution = 0;
@@ -90,7 +98,7 @@ int main(int argc, char **argv)
 
     std::vector<uint8_t> fileData(28 * 28 * sizeof(float));
     // int mNumber = rand() % 10;
-    readPGMFile("/home/lijiakang/TensorRT-6.0.1.5/data/mnist/1.pgm", fileData.data(), 28, 28);
+    readPGMFile("/home/lijiakang/TensorRT-7.1.3.4/data/mnist/1.pgm", fileData.data(), 28, 28);
     auto input_size = 28 * 28;
     float test_data[28 * 28];
     memset(test_data, 0, sizeof(float) * 28 * 28);
@@ -173,25 +181,14 @@ int main(int argc, char **argv)
         ctx1(ef.engine->createExecutionContextWithoutDeviceMemory());
     if (!ctx1)
     {
-        gLogFatal << __CXX_PREFIX << "Can not create execution context of ResNet-50" << endl;
+        gLogFatal << __CXX_PREFIX << "Can not create execution context of LeNet-5" << endl;
         return -1;
     }
-    void *ctx1_execmem = ContextSetDeviceMemory(ctx1.get(), global_allocator.get());
-    if (!ctx1_execmem)
-    {
-        throw "";
-        return -1;
-    }
+
     std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter> ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
     if (!ctx2)
     {
-        gLogFatal << __CXX_PREFIX << "Can not create execution context of ResNet-50" << endl;
-        return -1;
-    }
-    void *ctx2_execmem = ContextSetDeviceMemory(ctx2.get(), global_allocator.get());
-    if (!ctx2_execmem)
-    {
-        throw "";
+        gLogFatal << __CXX_PREFIX << "Can not create execution context of LeNet-5" << endl;
         return -1;
     }
 
@@ -201,7 +198,7 @@ int main(int argc, char **argv)
             gLogInfo << "Executed " << i << " times" << endl;
         // 暂时解除智能指针的托管
         auto d_output_ptr = d_output.release();
-        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+        _CXX_MEASURE_TIME(executed = computation_worker.Compute("mnist", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
         if (executed != 0)
         {
             gLogError << __CXX_PREFIX << "Compute failed, exit..."
@@ -225,7 +222,7 @@ int main(int argc, char **argv)
 
         // 暂时解除智能指针的托管
         d_output_ptr = d_output.release();
-        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStreamWithoutExecDeviceMemory(d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
+        _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("mnist", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
         if (executed != 0)
         {
             gLogError << __CXX_PREFIX << "Compute failed, exit..."
@@ -238,10 +235,6 @@ int main(int argc, char **argv)
     }
 
     printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
-
-    global_allocator->free(ctx1_execmem);
-    global_allocator->free(ctx2_execmem);
-
 
     for (int i = 0; i < 2; i++)
         fout[i].close();

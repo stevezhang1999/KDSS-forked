@@ -122,15 +122,15 @@
 #endif
 
 #ifndef LOGWARNING
-#define LOGWARNING(str, args...)                    \
-    do                                              \
-    {                                               \
-        time_t timep = time(NULL);                  \
-        char *ltime = ctime(&timep);                \
-        ltime[strlen(ltime) - 1] = 0;               \
-        fprintf(stderr, "%s]%s", ltime, __WARNING); \
-        fprintf(stderr, str, ##args);               \
-        fprintf(stderr, "\n");                      \
+#define LOGWARNING(str, args...)                     \
+    do                                               \
+    {                                                \
+        time_t timep = time(NULL);                   \
+        char *ltime = ctime(&timep);                 \
+        ltime[strlen(ltime) - 1] = 0;                \
+        fprintf(stderr, "[%s]%s", ltime, __WARNING); \
+        fprintf(stderr, str, ##args);                \
+        fprintf(stderr, "\n");                       \
     } while (0)
 #endif
 
