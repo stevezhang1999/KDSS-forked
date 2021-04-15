@@ -9,6 +9,8 @@
 #include "opencv2/core.hpp"
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/imgproc.hpp"
+#include <cuda_runtime.h>
+#include <unistd.h>
 
 #if NV_TENSORRT_MAJOR >= 7
 using namespace sample;
@@ -23,6 +25,12 @@ int Softmax(float *(&input), size_t size);
 
 int main(int argc, char **argv)
 {
+    
+    size_t free=0;
+    size_t total=0;
+    cudaMemGetInfo(&free, &total);
+    cout << "free: " << free << "total: " << total << endl;
+    
     if (argc == 1)
     {
         cout << "Usage: ./main <allocator_name> [execution_times]" << endl;
@@ -43,7 +51,7 @@ int main(int argc, char **argv)
     TransferWorker transfer_worker(type);
     ComputationWorker computation_worker;
 
-    int loaded;
+    int loaded, loaded2, loaded3;
     ifstream fin(std::string("/home/zhanghaoying/KDSS/model/") + std::string("resnet-50.tengine"));
     if (!fin)
     {
@@ -69,13 +77,24 @@ int main(int argc, char **argv)
     else
     {
         fin.close();
+
+        cudaMemGetInfo(&free, &total);
+        gLogInfo << "Before load: " << "free " << free << " total " << total << endl;
+
         loaded = transfer_worker.LoadFromEngineFile("resnet-50", "resnet-50.tengine", "/home/zhanghaoying/KDSS/model/", vector<string>{"data"}, vector<string>{"resnetv17_dense0_fwd"});
+        //loaded2 = transfer_worker.LoadFromEngineFile("resnet-50-cpy", "resnet-50.tengine.cpy", "/home/zhanghaoying/KDSS/model/", vector<string>{"data"}, vector<string>{"resnetv17_dense0_fwd"});
+        //loaded3 = transfer_worker.LoadFromEngineFile("resnet-50-cpy2", "resnet-50.tengine.cpy", "/home/zhanghaoying/KDSS/model/", vector<string>{"data"}, vector<string>{"resnetv17_dense0_fwd"});
         if (loaded == -1)
         {
             gLogFatal << "Loading resnet-50 model into memory failed." << endl;
             return loaded;
         }
         //printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+
+        cudaMemGetInfo(&free, &total);
+        gLogInfo << "After load: " << "free " << free << " total " << total << endl;
+        sleep(10);
+        gLogInfo << "After sleep 10s: " << "free " << free << " total " << total << endl;
     }
 
     gLogInfo << "Running model resnet-50 performance test..." << endl;
@@ -223,6 +242,8 @@ int main(int argc, char **argv)
         // Cold start
         // 暂时解除智能指针的托管
         auto d_output_ptr = d_output.release();
+        cudaMemGetInfo(&free, &total);
+        gLogInfo << "Before single detection: " << "free " << free << " total " << total << endl;
         executed = computation_worker.Compute("resnet-50", d_input.get(), d_output_ptr);
         // 恢复
         d_output.reset(d_output_ptr);
@@ -285,9 +306,16 @@ int main(int argc, char **argv)
         }
         gLogInfo << "Detect finished." << endl;
         delete[] output;
+
+        cudaMemGetInfo(&free, &total);
+        gLogInfo << "After single detection: " << "free " << free << " total " << total << endl;
+
     }
 
-    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "After detections: " << "free " << free << " total " << total << endl;
+
+    //printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
     // 性能测试开始
     std::ofstream fout[2];
     const string file_name[] = {"compute_time.txt",
@@ -342,6 +370,8 @@ int main(int argc, char **argv)
     }
 
     // 创建上下文
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "Before creating ctx1: " << "free " << free << " total " << total << endl;
     std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
         ctx1(ef.engine->createExecutionContextWithoutDeviceMemory());
     if (!ctx1)
@@ -349,8 +379,12 @@ int main(int argc, char **argv)
         gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
         return -1;
     }
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "After creating ctx1: " << "free " << free << " total " << total << endl;
 
     // 创建上下文
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "Before creating ctx2: " << "free " << free << " total " << total << endl;
     std::unique_ptr<IExecutionContext, samplesCommon::InferDeleter>
         ctx2(ef.engine->createExecutionContextWithoutDeviceMemory());
     if (!ctx2)
@@ -358,6 +392,8 @@ int main(int argc, char **argv)
         gLogFatal << __CXX_PREFIX << "Can not create execution context of resnet-50" << endl;
         return -1;
     }
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "After creating ctx2: " << "free " << free << " total " << total << endl;
 
     int executed = 0;
     for (int i = 1; i <= execution_time; i++)
@@ -371,8 +407,14 @@ int main(int argc, char **argv)
         do
         {
             // 暂时解除智能指针的托管
+            cudaMemGetInfo(&free, &total);
+            gLogInfo << "Before realesing GPU output ptr: " << "free " << free << " total " << total << endl;
             d_output_ptr = d_output.release();
+            cudaMemGetInfo(&free, &total);
+            gLogInfo << "Before computing w/o stream: " << "free " << free << " total " << total << endl;
             _CXX_MEASURE_TIME(executed = computation_worker.Compute("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx1.get(), &ef), fout[0]);
+            cudaMemGetInfo(&free, &total);
+            gLogInfo << "After computing w/o stream: " << "free " << free << " total " << total << endl;
             // #endif
             if (executed != 0)
             {
@@ -400,7 +442,11 @@ int main(int argc, char **argv)
         {
             // 暂时解除智能指针的托管
             d_output_ptr = d_output.release();
+            cudaMemGetInfo(&free, &total);
+            gLogInfo << "Before computing with stream: " << "free " << free << " total " << total << endl;
             _CXX_MEASURE_TIME(executed = computation_worker.ComputeWithStream("resnet-50", d_input.get(), d_output_ptr, global_allocator.get(), ctx2.get(), &ef), fout[1]);
+            cudaMemGetInfo(&free, &total);
+            gLogInfo << "After computing with stream: " << "free " << free << " total " << total << endl;
             if (executed != 0)
             {
                 gLogFatal << __CXX_PREFIX << "Model execution failed, current memory pool info: " << endl;
@@ -424,10 +470,13 @@ int main(int argc, char **argv)
         } while (0);
     }
 
-    printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
+    //printCurrentPool(dynamic_cast<KGAllocatorV2 *>(global_allocator.get()));
 
     for (int i = 0; i < 2; i++)
         fout[i].close();
+    
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "Before exiting " << "free " << free << " total " << total << endl;
 
     return 0;
 }

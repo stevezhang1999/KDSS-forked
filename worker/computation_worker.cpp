@@ -87,6 +87,7 @@ int ComputationWorker::TransferOutput(std::string model_name, void **output_ptr,
 
 int ComputationWorker::Compute(std::string model_name, void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx = nullptr, EngineInfo *eInfo = nullptr)
 {
+    size_t free, total;
     static int FirstComputeExecute = 0;
     if (FirstComputeExecute == 0)
     {
@@ -147,8 +148,12 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
     }
 
     // 为Engine分配执行显存
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "In worker, before allocate: " << "free " << free << " total " << total << endl;
     uint64_t execute_memory_size = engine->getDeviceMemorySize();
     void *execution_memory = allocator->allocate(execute_memory_size, alignment, 0);
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "In worker, after allocate: " << "free " << free << " total " << total << endl;
     if (!execution_memory)
     {
         gLogError << __CXX_PREFIX << "Can not allocate execution memory for model " << model_name << " execution."
@@ -159,6 +164,8 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
         context->setDeviceMemory(execution_memory);
     else
         ctx->setDeviceMemory(execution_memory);
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "In worker, after set: " << "free " << free << " total " << total << endl;
 
     // 首先遍历ef，取得所有的InputName和OutputName，逐个申请内存
     int input_num = ef.InputName.size();
@@ -197,9 +204,10 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
         gLogInfo << "Output " << i << "'s device address:" << buffers.get()[output_i_index] << endl;
 #endif
     }
-
     // 执行模型
     bool status;
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "In worker, before execute: " << "free " << free << " total " << total << endl;
     if (ctx == nullptr)
     {
 #if NV_TENSORRT_MAJOR < 7
@@ -223,6 +231,8 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
                   << endl;
         return -1;
     }
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "In worker, after execute: " << "free " << free << " total " << total << endl;
 
     // 释放执行显存
     allocator->free(execution_memory);
@@ -237,6 +247,7 @@ int ComputationWorker::Compute(std::string model_name, void **input, void **(&ou
 
 int ComputationWorker::ComputeWithStream(std::string model_name, void **input, void **(&output), nvinfer1::IGpuAllocator *allocator, nvinfer1::IExecutionContext *ctx = nullptr, EngineInfo *eInfo = nullptr)
 {
+    size_t free, total;
     static int FirstStreamComputeExecute = 0;
     if (FirstStreamComputeExecute == 0)
     {
@@ -304,7 +315,11 @@ int ComputationWorker::ComputeWithStream(std::string model_name, void **input, v
 
     // 为Engine分配执行显存
     uint64_t execute_memory_size = engine->getDeviceMemorySize();
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "In worker, before allocate, stream: " << "free " << free << " total " << total << endl;
     void *execution_memory = allocator->allocate(execute_memory_size, alignment, 0);
+    cudaMemGetInfo(&free, &total);
+    gLogInfo << "In worker, after allocate, stream: " << "free " << free << " total " << total << endl;
     if (ctx == nullptr)
         context->setDeviceMemory(execution_memory);
     else

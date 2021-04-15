@@ -270,6 +270,7 @@ void *DefaultAllocator::allocate(uint64_t size, uint64_t alignment, uint32_t fla
 #ifdef __DEBUG
     gLogInfo << "Default allocator allocate " << d_ptr << " for size " << size << "." << endl;
 #endif
+    gLogInfo << "Call allocate " << size << " B" << endl;
     return d_ptr;
 }
 
@@ -387,6 +388,7 @@ void *KGAllocatorV2::allocate(uint64_t size, uint64_t alignment, uint32_t flags)
                 this->mu.unlock();
                 slab->free_chunk_num--;
                 slab->using_chunk_num++;
+                gLogInfo << __CXX_PREFIX << "Call allocate: " << size  << " B "  << slab->chunks.back()->d_ptr << endl;
                 return (*iter)->d_ptr;
             }
         }
